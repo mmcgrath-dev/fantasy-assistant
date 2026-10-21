@@ -1,122 +1,81 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+// useState and useEffect are React "hooks," built-in tools that give a component extra powers.
+import { useState, useEffect } from "react";
+import "./App.css";
 
+// A component is a function that returns what should appear on the page.
+// App is the main component, the whole page lives inside it.
 function App() {
-  const [count, setCount] = useState(0)
+  // STATE: values React keeps track of. When state changes, React redraws the page.
+  // roster starts as null (nothing loaded yet). setRoster is how we change it.
+  const [roster, setRoster] = useState(null);
+  const [error, setError] = useState(null);
 
+  // EFFECT: code that runs after the page first appears.
+  // The empty [] at the end means "only run this once," not on every redraw.
+  useEffect(() => {
+    async function loadRoster() {
+      try {
+        // Ask OUR back end (the Netlify Function), not ESPN directly.
+        const response = await fetch("/.netlify/functions/roster");
+        const data = await response.json();
+
+        if (data.error) {
+          setError(data.error);
+        } else {
+          setRoster(data); // This triggers a redraw with the real data
+        }
+      } catch (err) {
+        setError(err.message);
+      }
+    }
+
+    loadRoster();
+  }, []);
+
+  // While waiting or if something broke, show a simple message instead of the table.
+  if (error) {
+    return <p>Something went wrong: {error}</p>;
+  }
+
+  if (!roster) {
+    return <p>Loading your team...</p>;
+  }
+
+  // Once roster has data, show the team.
+  // This HTML-looking code is called JSX. Anything inside { } is regular JavaScript.
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <main>
+      <h1>{roster.teamName}</h1>
+      <p>
+        Week {roster.week} | Projected total: <strong>{roster.projectedTotal}</strong>
+      </p>
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      <table>
+        <thead>
+          <tr>
+            <th>Slot</th>
+            <th>Player</th>
+            <th>Pos</th>
+            <th>Team</th>
+            <th>Proj</th>
+          </tr>
+        </thead>
+        <tbody>
+          {/* .map turns each player into a table row.
+              React needs a unique "key" on each row to keep track of them. */}
+          {roster.players.map((player) => (
+            <tr key={player.name}>
+              <td>{player.slot}</td>
+              <td>{player.name}</td>
+              <td>{player.position}</td>
+              <td>{player.nflTeam}</td>
+              <td>{player.projected}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </main>
+  );
 }
 
-export default App
+export default App;
