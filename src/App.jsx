@@ -34,46 +34,73 @@ function App() {
 
   // While waiting or if something broke, show a simple message instead of the table.
   if (error) {
-    return <p>Something went wrong: {error}</p>;
+    return (
+      <main className="app">
+        <p className="message">Something went wrong: {error}</p>
+      </main>
+    );
   }
 
   if (!roster) {
-    return <p>Loading your team...</p>;
+    return (
+      <main className="app">
+        <p className="message">Loading your team...</p>
+      </main>
+    );
   }
 
   // Once roster has data, show the team.
   // This HTML-looking code is called JSX. Anything inside { } is regular JavaScript.
+  // In JSX, CSS classes use className instead of class.
   return (
-    <main>
-      <h1>{roster.teamName}</h1>
-      <p>
-        Week {roster.week} | Projected total: <strong>{roster.projectedTotal}</strong>
-      </p>
+    <main className="app">
+      <header className="team-header">
+        <div>
+          <h1>{roster.teamName}</h1>
+          <p className="week">Week {roster.week}</p>
+        </div>
+        <div className="total">
+          <div className="total-label">Projected</div>
+          <div className="total-number">{roster.projectedTotal}</div>
+        </div>
+      </header>
 
-      <table>
-        <thead>
-          <tr>
-            <th>Slot</th>
-            <th>Player</th>
-            <th>Pos</th>
-            <th>Team</th>
-            <th>Proj</th>
-          </tr>
-        </thead>
-        <tbody>
-          {/* .map turns each player into a table row.
-              React needs a unique "key" on each row to keep track of them. */}
-          {roster.players.map((player) => (
-            <tr key={player.name}>
-              <td>{player.slot}</td>
-              <td>{player.name}</td>
-              <td>{player.position}</td>
-              <td>{player.nflTeam}</td>
-              <td>{player.projected}</td>
+      <div className="table-wrap">
+        <table className="roster">
+          <thead>
+            <tr>
+              <th>Slot</th>
+              <th>Player</th>
+              <th>Pos</th>
+              <th>Team</th>
+              <th>Status</th>
+              <th className="num">Proj</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {/* .map turns each player into a table row.
+                React needs a unique "key" on each row to keep track of them.
+                Bench and IR rows get the "bench" class so the CSS can fade them. */}
+            {roster.players.map((player) => (
+              <tr key={player.name} className={player.starter ? "" : "bench"}>
+                <td className="slot">{player.slot}</td>
+                <td className="player-name">{player.name}</td>
+                <td>{player.position}</td>
+                <td>{player.nflTeam}</td>
+                <td>
+                  {/* && means "only show this if status isn't empty."
+                      The class becomes status-Q, status-BYE, and so on, so each gets its own color. */}
+                  {player.status && (
+                    <span className={`status status-${player.status}`}>{player.status}</span>
+                  )}
+                </td>
+                {/* The ? : is a short if/else. If they're on bye, show "--", otherwise their points. */}
+                <td className="num">{player.status === "BYE" ? "--" : player.projected}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }
