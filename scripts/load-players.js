@@ -47,6 +47,7 @@ async function main() {
     .map((p) => ({
       gsis_id: p.gsis_id,
       espn_id: p.espn_id || null,
+      pfr_id: p.pfr_id || null,
       full_name: p.display_name,
       position: p.position,
       team: p.latest_team || null,
