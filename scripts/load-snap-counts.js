@@ -60,7 +60,7 @@ async function main() {
   console.log(`Found ${parsed.data.length} snap count rows total`);
 
   // 3. Keep rows for players we know, translating pfr_id to gsis_id.
-  //    This also drops linemen and defense, since they aren't in our players table.
+  //    Offense and defense both, so we can see who actually played.
   let skipped = 0;
   const rows = [];
   for (const s of parsed.data) {
@@ -78,6 +78,8 @@ async function main() {
       opponent: s.opponent || null,
       offense_snaps: s.offense_snaps === "" ? null : Number(s.offense_snaps),
       offense_pct: s.offense_pct === "" ? null : Number(s.offense_pct),
+      defense_snaps: s.defense_snaps === "" ? null : Number(s.defense_snaps),
+      defense_pct: s.defense_pct === "" ? null : Number(s.defense_pct),
       updated_at: new Date().toISOString(),
     });
   }
