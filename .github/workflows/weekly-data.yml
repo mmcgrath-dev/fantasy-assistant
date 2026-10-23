@@ -1,0 +1,68 @@
+# weekly-data.yml
+# Runs every data loader on a schedule so the database stays up to date
+# without anyone running commands by hand.
+#
+# Lives at: .github/workflows/weekly-data.yml
+# Needs two repository secrets: SUPABASE_URL and SUPABASE_SECRET_KEY
+# (Settings > Secrets and variables > Actions)
+
+name: Weekly data load
+
+on:
+  schedule:
+    # Times are in UTC. 14:17 UTC is 10:17 AM Eastern during daylight time
+    # (9:17 AM after the clocks change in November).
+    # Tuesday: after Monday Night Football, when the week's games are all in.
+    - cron: "17 14 * * 2"
+    # Saturday: picks up the final injury reports, which come out Friday afternoon.
+    - cron: "17 14 * * 6"
+
+  # Adds a "Run workflow" button on GitHub so you can run it any time
+  workflow_dispatch:
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+
+    steps:
+      # Grab a copy of the repo so the runner has the scripts
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      # Same Node version you use locally
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Installs exactly what's in package-lock.json (papaparse, supabase-js, etc.)
+      - name: Install packages
+        run: npm ci
+
+      # Players first, since every other table points back to it
+      - name: Load players
+        run: node scripts/load-players.js
+
+      - name: Load snap counts
+        run: node scripts/load-snap-counts.js
+
+      - name: Load targets
+        run: node scripts/load-targets.js
+
+      - name: Load rushes
+        run: node scripts/load-rushes.js
+
+      - name: Load weekly stats
+        run: node scripts/load-weekly-stats.js
+
+      - name: Load injuries
+        run: node scripts/load-injuries.js
+
+      - name: Load advanced stats
+        run: node scripts/load-advanced-stats.js

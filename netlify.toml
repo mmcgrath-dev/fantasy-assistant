@@ -1,0 +1,14 @@
+# netlify.toml
+# Settings Netlify reads every time you push to GitHub.
+# Build command, publish folder and environment variables are still set in
+# the Netlify dashboard, this file only adds the rule below.
+
+[build]
+  # Only rebuild the site when something the website actually uses changed.
+  # Pushes that only touch scripts/, supabase/ or .github/ get skipped, since
+  # they don't change the site, and every real deploy costs 15 Netlify credits.
+  #
+  # How it works: git diff --quiet checks the folders listed after the --.
+  # No changes there = exit code 0 = Netlify skips the build.
+  # Any change there = exit code 1 = Netlify builds and deploys like normal.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- src/ public/ netlify/ index.html package.json package-lock.json vite.config.js"
