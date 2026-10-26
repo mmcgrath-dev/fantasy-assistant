@@ -1,7 +1,8 @@
 -- get_game_logs function
 -- The data behind the player panel on My Team. You hand it a list of ESPN
 -- player IDs (your roster) and it hands back every game each player has played this season, newest first, with:
---   - snaps, targets, catches, carries, touches and PPR points
+--   - snaps, PPR points, and the box score: passing, rushing and receiving
+--     (the page picks which of those to show based on his position)
 --   - where he ranked at his position that week for snaps, touches and points
 --     (1 = best at his position that week)
 --   - how soft that week's defense is against his position (1 = gives up the most)
@@ -16,6 +17,10 @@
 --     (select array_agg(espn_id) from players where full_name ilike '%jeanty%')
 --   );
 
+-- Remove the old version first. "create or replace" can't change which columns
+-- a function returns, and this version returns more than the first one did.
+drop function if exists public.get_game_logs(text[]);
+
 create or replace function public.get_game_logs(espn_ids text[])
 returns table (
   espn_id       text,
@@ -25,9 +30,19 @@ returns table (
   softness_rank bigint,
   snap_pct      numeric,
   snap_rank     bigint,
+  completions   integer,
+  attempts      integer,
+  pass_yards    integer,
+  pass_tds      integer,
+  interceptions integer,
+  carries       integer,
+  rush_yards    integer,
+  rush_tds      integer,
   targets       integer,
   receptions    integer,
-  carries       integer,
+  rec_yards     integer,
+  rec_tds       integer,
+  target_share  numeric,       -- 25 means 25% of his team's targets
   touches       integer,
   touch_rank    bigint,
   ppr_points    numeric,
@@ -46,9 +61,19 @@ as $$
       w.position,
       s.opponent as defense,
       s.offense_pct,
+      w.completions,
+      w.attempts,
+      w.passing_yards,
+      w.passing_tds,
+      w.interceptions,
+      w.carries,
+      w.rushing_yards,
+      w.rushing_tds,
       w.targets,
       w.receptions,
-      w.carries,
+      w.receiving_yards,
+      w.receiving_tds,
+      w.target_share,
       coalesce(w.targets, 0) + coalesce(w.carries, 0) as touches,
       w.fantasy_points_ppr as ppr_points
     from weekly_stats w
@@ -89,9 +114,19 @@ as $$
     d.softness_rank,
     round(r.offense_pct * 100),
     r.snap_rank,
+    r.completions,
+    r.attempts,
+    r.passing_yards,
+    r.passing_tds,
+    r.interceptions,
+    r.carries,
+    r.rushing_yards,
+    r.rushing_tds,
     r.targets,
     r.receptions,
-    r.carries,
+    r.receiving_yards,
+    r.receiving_tds,
+    round(r.target_share * 100),
     r.touches,
     r.touch_rank,
     r.ppr_points,

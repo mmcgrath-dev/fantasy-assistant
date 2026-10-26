@@ -157,3 +157,100 @@
 .trend-none {
   color: var(--muted);
 }
+
+/* ---------- Clickable rows ---------- */
+
+.roster tr.clickable {
+  cursor: pointer;
+}
+
+.roster tr.clickable:hover td,
+.roster tr.open td {
+  background: #1d2630;
+}
+
+.chevron {
+  display: inline-block;
+  width: 1em;
+  margin-right: 4px;
+  color: var(--muted);
+}
+
+/* ---------- Game log panel ---------- */
+
+/* The panel row shouldn't fade even under a bench player. */
+.roster tr.log-row > td {
+  padding: 0;
+  background: var(--bg);
+  opacity: 1;
+}
+
+.game-log {
+  padding: 12px;
+}
+
+/* Lets the game log scroll sideways on a phone. */
+.game-log-scroll {
+  overflow-x: auto;
+}
+
+.game-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.game-log-table th {
+  padding: 6px 8px;
+  text-align: left;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.game-log-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.game-log-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Season average row: a line above it and bold numbers so it reads as a summary. */
+.game-log-table .avg-row td {
+  border-top: 2px solid var(--border);
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.game-log-key {
+  margin: 10px 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* Cell tints, Sleeper style. Strong and light green for good, light and strong red for bad.
+   rgba is a color with see-through-ness: the last number is how strong it is (0 to 1). */
+.good-2 {
+  background: rgba(63, 185, 80, 0.35);
+}
+
+.good-1 {
+  background: rgba(63, 185, 80, 0.15);
+}
+
+.neutral {
+  background: rgba(139, 150, 163, 0.08);
+}
+
+.bad-1 {
+  background: rgba(248, 81, 73, 0.15);
+}
+
+.bad-2 {
+  background: rgba(248, 81, 73, 0.35);
+}
