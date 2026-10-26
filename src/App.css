@@ -254,3 +254,38 @@
 .bad-2 {
   background: rgba(248, 81, 73, 0.35);
 }
+
+/* ---------- Why box (top of the panel) ---------- */
+
+.why {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.why-title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.why-verdict {
+  margin: 6px 0 0;
+  font-weight: 700;
+}
+
+.why-lines {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+/* Long sentences should wrap, even though the rest of the table doesn't. */
+.why,
+.why-lines li {
+  white-space: normal;
+}

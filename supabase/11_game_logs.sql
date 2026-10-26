@@ -3,8 +3,8 @@
 -- player IDs (your roster) and it hands back every game each player has played this season, newest first, with:
 --   - snaps, PPR points, and the box score: passing, rushing and receiving
 --     (the page picks which of those to show based on his position)
---   - where he ranked at his position that week for snaps, touches and points
---     (1 = best at his position that week)
+--   - where he ranked at his position that week for snaps, touches, points and
+--     each box score stat (1 = best at his position that week; for INTs, 1 = fewest)
 --   - how soft that week's defense is against his position (1 = gives up the most)
 --   - vs_def: his points minus what that defense allowed to every OTHER player
 --     at his position with a real role (25%+ snaps). +9.8 means he beat what
@@ -47,7 +47,17 @@ returns table (
   touch_rank    bigint,
   ppr_points    numeric,
   points_rank   bigint,
-  vs_def        numeric
+  vs_def        numeric,
+  -- where each box score stat ranked at his position that week
+  pass_yards_rank   bigint,
+  pass_tds_rank     bigint,
+  int_rank          bigint,      -- 1 = fewest picks among QBs who really played
+  rush_yards_rank   bigint,
+  carries_rank      bigint,
+  targets_rank      bigint,
+  receptions_rank   bigint,
+  rec_yards_rank    bigint,
+  target_share_rank bigint
 )
 language sql
 stable
@@ -90,6 +100,19 @@ as $$
       rank() over (partition by g.week, g.position order by g.offense_pct desc nulls last) as snap_rank,
       rank() over (partition by g.week, g.position order by g.touches desc) as touch_rank,
       rank() over (partition by g.week, g.position order by g.ppr_points desc nulls last) as points_rank,
+      -- one rank per box score stat. coalesce turns blanks into 0 so they sort to the bottom.
+      rank() over (partition by g.week, g.position order by coalesce(g.passing_yards, 0) desc) as pass_yards_rank,
+      rank() over (partition by g.week, g.position order by coalesce(g.passing_tds, 0) desc) as pass_tds_rank,
+      -- INTs are backwards: fewer is better. But a backup who threw 2 passes and no picks
+      -- shouldn't rank as the best, so QBs with 10+ attempts go first, then fewest INTs.
+      rank() over (partition by g.week, g.position
+                   order by (coalesce(g.attempts, 0) >= 10) desc, coalesce(g.interceptions, 0) asc) as int_rank,
+      rank() over (partition by g.week, g.position order by coalesce(g.rushing_yards, 0) desc) as rush_yards_rank,
+      rank() over (partition by g.week, g.position order by coalesce(g.carries, 0) desc) as carries_rank,
+      rank() over (partition by g.week, g.position order by coalesce(g.targets, 0) desc) as targets_rank,
+      rank() over (partition by g.week, g.position order by coalesce(g.receptions, 0) desc) as receptions_rank,
+      rank() over (partition by g.week, g.position order by coalesce(g.receiving_yards, 0) desc) as rec_yards_rank,
+      rank() over (partition by g.week, g.position order by coalesce(g.target_share, 0) desc) as target_share_rank,
       (g.offense_pct >= 0.25 and g.ppr_points is not null) as counted
     from games g
   ),
@@ -136,7 +159,16 @@ as $$
       r.ppr_points
       - (d.total_allowed - case when r.counted then r.ppr_points else 0 end)
         / nullif(d.role_games - case when r.counted then 1 else 0 end, 0)
-    , 1)
+    , 1),
+    r.pass_yards_rank,
+    r.pass_tds_rank,
+    r.int_rank,
+    r.rush_yards_rank,
+    r.carries_rank,
+    r.targets_rank,
+    r.receptions_rank,
+    r.rec_yards_rank,
+    r.target_share_rank
   from ranked r
   join players p on p.gsis_id = r.gsis_id
   left join defenses d

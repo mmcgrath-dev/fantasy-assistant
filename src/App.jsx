@@ -1,6 +1,7 @@
 // useState and useEffect are React "hooks," built-in tools that give a component extra powers.
 import { useState, useEffect, Fragment } from "react";
 import "./App.css";
+import { buildWhy } from "./why.js";
 
 // Arrows for each trend label from the database.
 const TREND_ARROWS = { up: "▲", down: "▼", steady: "▶" };
@@ -104,6 +105,17 @@ const SNAPS = {
   hint: (g) => `${g.position}${g.snapRank} in snap share that week`,
 };
 
+// Builds a column that's colored by one of the weekly ranks.
+// label: header, value: the stat, rankOf: which rank colors it, what: words for the hover popup.
+function ranked(label, value, rankOf, what) {
+  return {
+    label,
+    value,
+    color: (g) => rankColor(rankOf(g)),
+    hint: (g) => (rankOf(g) ? `${g.position}${rankOf(g)} in ${what} that week` : ""),
+  };
+}
+
 const POSITION_COLUMNS = {
   QB: [
     SNAPS,
@@ -112,54 +124,65 @@ const POSITION_COLUMNS = {
       value: (g) => (g.attempts == null ? null : `${g.completions}/${g.attempts}`),
       avg: false,
     },
-    { label: "Pass Yds", value: (g) => g.passYards },
-    { label: "Pass TD", value: (g) => g.passTds },
-    { label: "INT", value: (g) => g.interceptions },
-    { label: "Rush Yds", value: (g) => g.rushYards },
+    ranked("Pass Yds", (g) => g.passYards, (g) => g.passYardsRank, "passing yards"),
+    ranked("Pass TD", (g) => g.passTds, (g) => g.passTdsRank, "passing TDs"),
+    // For INTs, rank 1 means the fewest picks, so green still means good.
+    ranked("INT", (g) => g.interceptions, (g) => g.intRank, "fewest INTs"),
+    ranked("Rush Yds", (g) => g.rushYards, (g) => g.rushYardsRank, "rushing yards"),
     // A rushing TD is worth 6 for a QB vs 4 for a passing TD, so it matters a lot.
+    // TDs aren't colored: most players score 0 or 1, so the ranks are mostly ties.
     { label: "Rush TD", value: (g) => g.rushTds },
   ],
   RB: [
     SNAPS,
-    { label: "Car", value: (g) => g.carries },
-    { label: "Rush Yds", value: (g) => g.rushYards },
-    { label: "Tar", value: (g) => g.targets },
-    { label: "Rec", value: (g) => g.receptions },
-    { label: "Rec Yds", value: (g) => g.recYards },
+    ranked("Car", (g) => g.carries, (g) => g.carriesRank, "carries"),
+    ranked("Rush Yds", (g) => g.rushYards, (g) => g.rushYardsRank, "rushing yards"),
+    ranked("Tar", (g) => g.targets, (g) => g.targetsRank, "targets"),
+    ranked("Rec", (g) => g.receptions, (g) => g.receptionsRank, "catches"),
+    ranked("Rec Yds", (g) => g.recYards, (g) => g.recYardsRank, "receiving yards"),
     { label: "TD", value: (g) => add(g.rushTds, g.recTds) },
-    {
-      label: "Touch",
-      value: (g) => g.touches,
-      color: (g) => rankColor(g.touchRank),
-      hint: (g) => `${g.position}${g.touchRank} in touches that week`,
-    },
+    ranked("Touch", (g) => g.touches, (g) => g.touchRank, "touches"),
   ],
   WR: [
     SNAPS,
-    {
-      label: "Tar",
-      value: (g) => g.targets,
-      // For a receiver, touches are basically targets, so the touch rank colors this.
-      color: (g) => rankColor(g.touchRank),
-      hint: (g) => `${g.position}${g.touchRank} in touches that week`,
-    },
-    { label: "Rec", value: (g) => g.receptions },
-    { label: "Yds", value: (g) => g.recYards },
+    ranked("Tar", (g) => g.targets, (g) => g.targetsRank, "targets"),
+    ranked("Rec", (g) => g.receptions, (g) => g.receptionsRank, "catches"),
+    ranked("Yds", (g) => g.recYards, (g) => g.recYardsRank, "receiving yards"),
     { label: "TD", value: (g) => add(g.rushTds, g.recTds) },
-    { label: "Tar%", value: (g) => g.targetShare },
+    ranked("Tar%", (g) => g.targetShare, (g) => g.targetShareRank, "target share"),
   ],
 };
 // Tight ends get the same columns as receivers.
 POSITION_COLUMNS.TE = POSITION_COLUMNS.WR;
 
-// The panel that opens under a player's row: one line per game this season,
-// plus his season average at the bottom.
-function GameLog({ games }) {
+// The "Why" box at the top of the panel: a one-line takeaway plus the evidence.
+// The rules that write these sentences live in why.js.
+function Why({ context }) {
+  const { verdict, lines } = buildWhy(context);
+  if (lines.length === 0) return null;
+
+  return (
+    <div className="why">
+      <div className="why-title">Why · last 2 games vs the 2 before</div>
+      {verdict && <p className="why-verdict">{verdict}</p>}
+      <ul className="why-lines">
+        {lines.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// The panel that opens under a player's row: the Why box, then one line per
+// game this season, plus his season average at the bottom.
+function GameLog({ games, context }) {
   const pos = games[0].position;
   const middleColumns = POSITION_COLUMNS[pos] || POSITION_COLUMNS.WR;
 
   return (
     <div className="game-log">
+      <Why context={context} />
       <div className="game-log-scroll">
         <table className="game-log-table">
           <thead>
@@ -352,7 +375,7 @@ function App() {
                   {isOpen && (
                     <tr className="log-row">
                       <td colSpan={7}>
-                        <GameLog games={player.gameLog} />
+                        <GameLog games={player.gameLog} context={player.roleContext} />
                       </td>
                     </tr>
                   )}

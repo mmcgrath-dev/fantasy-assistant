@@ -1,6 +1,6 @@
 // This function gets your roster from ESPN for the current week,
 // cleans it up, adds up your starters' projected points,
-// and looks up each player's snap trend and game log in your Supabase database.
+// and looks up each player's snap trend, game log and role context in your Supabase database.
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -125,9 +125,67 @@ async function getGameLogs(supabase, espnIds) {
       points: row.ppr_points,
       pointsRank: row.points_rank,
       vsDef: row.vs_def,
+      // where each box score stat ranked at his position that week (1 = best)
+      passYardsRank: row.pass_yards_rank,
+      passTdsRank: row.pass_tds_rank,
+      intRank: row.int_rank,
+      rushYardsRank: row.rush_yards_rank,
+      carriesRank: row.carries_rank,
+      targetsRank: row.targets_rank,
+      receptionsRank: row.receptions_rank,
+      recYardsRank: row.rec_yards_rank,
+      targetShareRank: row.target_share_rank,
     });
   }
   return logs;
+}
+
+// Asks Supabase for the numbers behind the "why" lines (get_role_context from
+// supabase/12_role_context.sql): team volume, his usage and share, the teammate
+// gaining snaps, and his latest injury report. "Last" = his team's last 2 games,
+// "prior" = the 2 before. Returns a lookup of ESPN ID -> those numbers.
+async function getRoleContext(supabase, espnIds) {
+  if (!supabase) return {};
+
+  const { data, error } = await supabase.rpc("get_role_context", { espn_ids: espnIds });
+  if (error) {
+    console.log("Role context failed:", error.message);
+    return {};
+  }
+
+  const context = {};
+  for (const row of data) {
+    context[row.espn_id] = {
+      team: row.team,
+      position: row.pos,
+      plays: { last: row.plays_last, prior: row.plays_prior },
+      runPct: { last: row.run_pct_last, prior: row.run_pct_prior },
+      snaps: { last: row.snaps_last, prior: row.snaps_prior },
+      carries: { last: row.carries_last, prior: row.carries_prior },
+      targets: { last: row.targets_last, prior: row.targets_prior },
+      carryShare: { last: row.carry_share_last, prior: row.carry_share_prior },
+      targetShare: { last: row.target_share_last, prior: row.target_share_prior },
+      // null when no teammate at his position gained snaps
+      teammate: row.mate_name
+        ? {
+            name: row.mate_name,
+            snapsChange: row.mate_snaps_change,
+            carriesChange: row.mate_carries_change,
+            targetsChange: row.mate_targets_change,
+          }
+        : null,
+      // null when he hasn't been on the injury report in the last 3 weeks
+      injury: row.injury_week
+        ? {
+            week: row.injury_week,
+            status: row.injury_status,
+            type: row.injury_type,
+            practice: row.practice_status,
+          }
+        : null,
+    };
+  }
+  return context;
 }
 
 export default async () => {
@@ -221,21 +279,23 @@ export default async () => {
       };
     });
 
-    // 7. Look up snap trends and game logs for the whole roster, then attach
-    //    them to each player.
-    //    Promise.all runs both database calls at the same time instead of one
-    //    after the other, so the page loads faster. It waits until both finish.
+    // 7. Look up snap trends, game logs and role context for the whole roster,
+    //    then attach them to each player.
+    //    Promise.all runs all three database calls at the same time instead of one
+    //    after the other, so the page loads faster. It waits until all of them finish.
     //    Kickers and D/ST get null for the trend and an empty game log,
     //    which the page shows as a dash.
     const supabase = getSupabase();
     const espnIds = players.map((p) => p.espnId);
-    const [trends, gameLogs] = await Promise.all([
+    const [trends, gameLogs, roleContext] = await Promise.all([
       getSnapTrends(supabase, espnIds),
       getGameLogs(supabase, espnIds),
+      getRoleContext(supabase, espnIds),
     ]);
     for (const player of players) {
       player.snapTrend = trends[player.espnId] || null;
       player.gameLog = gameLogs[player.espnId] || [];
+      player.roleContext = roleContext[player.espnId] || null;
     }
 
     // 8. Sort players into lineup order.
