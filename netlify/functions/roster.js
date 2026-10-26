@@ -1,5 +1,8 @@
 // This function gets your roster from ESPN for the current week,
-// cleans it up, and adds up your starters' projected points.
+// cleans it up, adds up your starters' projected points,
+// and looks up each player's snap trend in your Supabase database.
+
+import { createClient } from "@supabase/supabase-js";
 
 // ESPN uses numbers instead of names for positions, NFL teams, and lineup spots.
 // These "lookup tables" translate the numbers into words.
@@ -33,6 +36,40 @@ const SLOT_ORDER = ["QB", "RB", "WR", "TE", "FLEX", "D/ST", "K", "Bench", "IR"];
 // Rounds a number to one decimal place, like 14.93 -> 14.9
 function roundToOne(number) {
   return Math.round(number * 10) / 10;
+}
+
+// Asks Supabase for the snap trend of every player whose ESPN ID is in the list.
+// Returns a lookup like { "4890973": { last2: 56, prior2: 76, change: -20, trend: "down" } }
+//
+// If anything goes wrong (missing keys, Supabase is down), it returns an empty
+// lookup instead of crashing. Your roster still shows up, just without trends.
+async function getSnapTrends(espnIds) {
+  const { SUPABASE_URL, SUPABASE_SECRET_KEY } = process.env;
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) {
+    console.log("Snap trends skipped: SUPABASE_URL or SUPABASE_SECRET_KEY is missing");
+    return {};
+  }
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY);
+
+  // .rpc calls a database function by name, here the get_snap_trends function
+  // from supabase/10_snap_trends.sql. The object holds its input.
+  const { data, error } = await supabase.rpc("get_snap_trends", { espn_ids: espnIds });
+  if (error) {
+    console.log("Snap trends failed:", error.message);
+    return {};
+  }
+
+  const trends = {};
+  for (const row of data) {
+    trends[row.espn_id] = {
+      last2: row.last_2,
+      prior2: row.prior_2,
+      change: row.change,
+      trend: row.trend,
+    };
+  }
+  return trends;
 }
 
 export default async () => {
@@ -112,6 +149,8 @@ export default async () => {
       }
 
       return {
+        // ESPN's ID for this player, saved as text since that's how the players table stores it.
+        espnId: String(player.id),
         name: player.fullName,
         position: POSITIONS[player.defaultPositionId] || "?",
         nflTeam: NFL_TEAMS[player.proTeamId] || "?",
@@ -124,7 +163,15 @@ export default async () => {
       };
     });
 
-    // 7. Sort players into lineup order.
+    // 7. Look up snap trends for everyone on the roster in one trip to the database,
+    //    then attach each player's trend to him. Players with fewer than 4 games
+    //    (and D/ST, which isn't a player) get null, which the page shows as a dash.
+    const trends = await getSnapTrends(players.map((p) => p.espnId));
+    for (const player of players) {
+      player.snapTrend = trends[player.espnId] || null;
+    }
+
+    // 8. Sort players into lineup order.
     //    .sort compares two players at a time (a and b) and needs a number back:
     //      negative = a goes first, positive = b goes first, 0 = keep as is.
     //    indexOf gives each slot's position in SLOT_ORDER (QB is 0, RB is 1, and so on).
@@ -132,12 +179,12 @@ export default async () => {
     //    order ESPN sent them. That keeps the list matching your ESPN team page.
     players.sort((a, b) => SLOT_ORDER.indexOf(a.slot) - SLOT_ORDER.indexOf(b.slot));
 
-    // 8. Add up projected points for starters only (bench points don't count).
+    // 9. Add up projected points for starters only (bench points don't count).
     const projectedTotal = players
       .filter((p) => p.starter)
       .reduce((sum, p) => sum + p.projected, 0);
 
-    // 9. Send back the cleaned-up result.
+    // 10. Send back the cleaned-up result.
     //    Now that the total is added up from exact numbers, round everything for display.
     //    { ...player } copies all of a player's info, then projected: overwrites just that one value.
     return Response.json({

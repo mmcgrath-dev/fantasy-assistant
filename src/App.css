@@ -129,3 +129,31 @@
   background: var(--border);
   color: var(--muted);
 }
+
+/* ---------- Snap trend column ---------- */
+
+/* Keeps "56% ▼ 20" on one line instead of wrapping on small screens. */
+.snaps {
+  white-space: nowrap;
+}
+
+.trend {
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.trend-up {
+  color: var(--accent);
+}
+
+.trend-down {
+  color: var(--danger);
+}
+
+.trend-steady {
+  color: var(--muted);
+}
+
+.trend-none {
+  color: var(--muted);
+}

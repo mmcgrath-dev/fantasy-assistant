@@ -2,6 +2,31 @@
 import { useState, useEffect } from "react";
 import "./App.css";
 
+// Arrows for each trend label from the database.
+const TREND_ARROWS = { up: "▲", down: "▼", steady: "▶" };
+
+// Shows one player's snap trend: his snap % over the last 2 games,
+// plus an arrow and how many points it moved compared to the 2 games before.
+// Hovering over it shows the full numbers.
+// Players with no trend (kickers, D/ST, fewer than 4 games) get "--".
+function SnapTrend({ snapTrend }) {
+  if (!snapTrend) {
+    return <span className="trend-none">--</span>;
+  }
+
+  const { last2, prior2, change, trend } = snapTrend;
+
+  // Math.abs drops the minus sign, since the arrow already says which way it went.
+  return (
+    <span title={`Last 2 games: ${last2}% of snaps. 2 games before that: ${prior2}%.`}>
+      {last2}%{" "}
+      <span className={`trend trend-${trend}`}>
+        {TREND_ARROWS[trend]} {Math.abs(change)}
+      </span>
+    </span>
+  );
+}
+
 // A component is a function that returns what should appear on the page.
 // App is the main component, the whole page lives inside it.
 function App() {
@@ -74,6 +99,7 @@ function App() {
               <th>Pos</th>
               <th>Team</th>
               <th>Status</th>
+              <th className="num">Snaps</th>
               <th className="num">Proj</th>
             </tr>
           </thead>
@@ -93,6 +119,10 @@ function App() {
                   {player.status && (
                     <span className={`status status-${player.status}`}>{player.status}</span>
                   )}
+                </td>
+                {/* Snap % trend from the database (see SnapTrend at the top of this file). */}
+                <td className="num snaps">
+                  <SnapTrend snapTrend={player.snapTrend} />
                 </td>
                 {/* The ? : is a short if/else. If they're on bye, show "--", otherwise their points. */}
                 <td className="num">{player.status === "BYE" ? "--" : player.projected}</td>

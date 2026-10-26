@@ -4,6 +4,10 @@
 -- for each of those players: snap % in his last 2 games, snap % in the 2 games
 -- before that, the change between them, and a simple up / down / steady label.
 --
+-- Only QBs, RBs, WRs and TEs get a trend. Kickers show up in the snap counts
+-- file with 0 offensive snaps (they only play special teams), which would
+-- always read 0 / 0 / steady, so they're left out along with defenses.
+--
 -- Players with fewer than 4 games this season are left out, since there
 -- isn't enough to compare yet. The app shows a dash for them.
 --
@@ -34,6 +38,7 @@ as $$
     join players p on p.gsis_id = s.gsis_id
     where s.season = 2026
       and p.espn_id = any (espn_ids)
+      and p.position in ('QB', 'RB', 'WR', 'TE')
   ),
   averages as (
     -- squish each player's last 4 games into one row
