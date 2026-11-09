@@ -2,28 +2,21 @@
 import { useState, useEffect, Fragment } from "react";
 import "./App.css";
 import { buildWhy } from "./why.js";
+import { injurySummary } from "./injury.js";
 
-// Arrows for each trend label from the database.
-const TREND_ARROWS = { up: "▲", down: "▼", steady: "▶" };
+// The small label on each roster row, like "Role ▼" in red.
+// It comes from the same rules as the Why box (buildWhy in why.js), so the row
+// and the panel always agree. Hovering shows the full takeaway.
+// "--" means there's nothing to compare yet (kicker, D/ST, or under 4 team games).
+function RowTag({ context, injury }) {
+  if (!context) return <span className="tag-none">--</span>;
 
-// Shows one player's snap trend: his snap % over the last 2 games,
-// plus an arrow and how many points it moved compared to the 2 games before.
-// Hovering over it shows the full numbers.
-// Players with no trend (kickers, D/ST, fewer than 4 games) get "--".
-function SnapTrend({ snapTrend }) {
-  if (!snapTrend) {
-    return <span className="trend-none">--</span>;
-  }
+  const { verdict, tag } = buildWhy(context, injury);
+  if (!tag) return <span className="tag-none">Steady</span>;
 
-  const { last2, prior2, change, trend } = snapTrend;
-
-  // Math.abs drops the minus sign, since the arrow already says which way it went.
   return (
-    <span title={`Last 2 games: ${last2}% of snaps. 2 games before that: ${prior2}%.`}>
-      {last2}%{" "}
-      <span className={`trend trend-${trend}`}>
-        {TREND_ARROWS[trend]} {Math.abs(change)}
-      </span>
+    <span className={`tag tag-${tag.tone}`} title={verdict || ""}>
+      {tag.label}
     </span>
   );
 }
@@ -157,8 +150,8 @@ POSITION_COLUMNS.TE = POSITION_COLUMNS.WR;
 
 // The "Why" box at the top of the panel: a one-line takeaway plus the evidence.
 // The rules that write these sentences live in why.js.
-function Why({ context }) {
-  const { verdict, lines } = buildWhy(context);
+function Why({ context, injury }) {
+  const { verdict, lines } = buildWhy(context, injury);
   if (lines.length === 0) return null;
 
   return (
@@ -174,15 +167,33 @@ function Why({ context }) {
   );
 }
 
-// The panel that opens under a player's row: the Why box, then one line per
-// game this season, plus his season average at the bottom.
-function GameLog({ games, context }) {
+// The Injury box: this week's report, his history this season, and how he
+// played in games while hurt. Only shows if he's been on a report this season.
+function Injury({ injury }) {
+  if (!injury) return null;
+
+  return (
+    <div className="why injury">
+      <div className="why-title">Injury report</div>
+      <ul className="why-lines">
+        <li>{injury.statusLine}</li>
+        <li>{injury.historyLine}</li>
+        {injury.compareLine && <li>{injury.compareLine}</li>}
+      </ul>
+    </div>
+  );
+}
+
+// The panel that opens under a player's row: the Why box, the Injury box,
+// then one line per game this season, plus his season average at the bottom.
+function GameLog({ games, context, injury }) {
   const pos = games[0].position;
   const middleColumns = POSITION_COLUMNS[pos] || POSITION_COLUMNS.WR;
 
   return (
     <div className="game-log">
-      <Why context={context} />
+      <Why context={context} injury={injury} />
+      <Injury injury={injury} />
       <div className="game-log-scroll">
         <table className="game-log-table">
           <thead>
@@ -321,7 +332,7 @@ function App() {
               <th>Pos</th>
               <th>Team</th>
               <th>Status</th>
-              <th className="num">Snaps</th>
+              <th className="num">Trend</th>
               <th className="num">Proj</th>
             </tr>
           </thead>
@@ -332,6 +343,8 @@ function App() {
             {roster.players.map((player) => {
               // Kickers, D/ST and anyone without games have nothing to open.
               const hasLog = player.gameLog.length > 0;
+              // His injury reports turned into sentences (null if he's never been on one).
+              const injury = injurySummary(player.injuries, player.gameLog, roster.week);
               const isOpen = openPlayer === player.espnId;
 
               // Clicking an open player closes him, clicking anyone else opens them.
@@ -363,9 +376,9 @@ function App() {
                         <span className={`status status-${player.status}`}>{player.status}</span>
                       )}
                     </td>
-                    {/* Snap % trend from the database (see SnapTrend at the top of this file). */}
-                    <td className="num snaps">
-                      <SnapTrend snapTrend={player.snapTrend} />
+                    {/* Short trend label (see RowTag at the top of this file). */}
+                    <td className="num trend-cell">
+                      <RowTag context={player.roleContext} injury={injury} />
                     </td>
                     {/* The ? : is a short if/else. If they're on bye, show "--", otherwise their points. */}
                     <td className="num">{player.status === "BYE" ? "--" : player.projected}</td>
@@ -375,7 +388,7 @@ function App() {
                   {isOpen && (
                     <tr className="log-row">
                       <td colSpan={7}>
-                        <GameLog games={player.gameLog} context={player.roleContext} />
+                        <GameLog games={player.gameLog} context={player.roleContext} injury={injury} />
                       </td>
                     </tr>
                   )}

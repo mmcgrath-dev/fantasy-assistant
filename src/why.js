@@ -6,9 +6,14 @@
 // These are simple rules, not AI. Each rule checks one thing and, if it's
 // big enough to matter, adds a line. Small wiggles get ignored.
 //
-// buildWhy returns { verdict, lines }:
+// buildWhy(ctx, injury) takes his role context and his injury summary
+// (from injurySummary in injury.js, or null) and returns { verdict, lines, tag }:
 //   verdict: one short takeaway (or null if nothing stands out)
 //   lines:   the evidence, one sentence each
+//   tag:     a tiny label for the main roster row, like { label: "Role ▼", tone: "bad" }
+//            (or null when nothing stands out). tone is good, warn or bad.
+
+import { describeReport } from "./injury.js";
 
 // How big a change has to be before it's worth a line.
 const MIN_CHANGE = {
@@ -79,21 +84,14 @@ function teammateLine(mate, pos) {
   return `${mate.name} is getting more work (${extras.join(", ")}).`;
 }
 
-// Injury report entry. Only shows if he had a game status or wasn't a full participant.
+// One line if an injury was affecting him during his last 2 games.
 function injuryLine(injury) {
-  if (!injury) return null;
-  const limited = injury.practice === "Limited" || injury.practice === "DNP";
-  if (!injury.status && !limited) return null;
-
-  const bits = [];
-  if (injury.type) bits.push(injury.type);
-  if (injury.status) bits.push(injury.status);
-  if (injury.practice) bits.push(injury.practice === "DNP" ? "did not practice" : `${injury.practice.toLowerCase()} in practice`);
-  return `On the Week ${injury.week} injury report: ${bits.join(", ")}.`;
+  if (!injury || !injury.recent) return null;
+  return `Banged up in Week ${injury.recent.week}: ${describeReport(injury.recent)}.`;
 }
 
-export function buildWhy(ctx) {
-  if (!ctx) return { verdict: null, lines: [] };
+export function buildWhy(ctx, injurySummary) {
+  if (!ctx) return { verdict: null, lines: [], tag: null };
 
   const pos = ctx.position;
   const lines = [];
@@ -120,27 +118,60 @@ export function buildWhy(ctx) {
   // In PPR, an RB's targets are a big part of his floor, so mention them too.
   if (pos === "RB") lines.push(usageLine("Targets", ctx.targets, MIN_CHANGE.targets));
 
-  const injury = injuryLine(ctx.injury);
+  const injury = injuryLine(injurySummary);
   if (injury) lines.push(injury);
 
-  // ---------- The takeaway ----------
+  // ---------- The takeaway and the row tag ----------
   // usageDiff is how far his usage moved, measured in "notable changes"
   // (1 = exactly at the line, -2 = twice as big a drop). Only call it if it moved.
+  // Each case sets both the sentence for the panel and the short tag for the row,
+  // so the two always agree.
   let verdict = null;
+  let tag = null;
   if (pos !== "QB") {
     if (usageDiff <= -1) {
-      if (injury) verdict = "Usage down while on the injury report. Check his status before starting him.";
-      else if (share.direction === "down" && team)
+      if (injury && injurySummary.stillHurt) {
+        verdict = "Usage down and he's still on this week's injury report. Check his status before starting him.";
+        tag = { label: "Injury", tone: "bad" };
+      } else if (injury && share.direction === "down") {
+        verdict = `Hurt in Week ${injurySummary.recent.week}, but his share of the work is shrinking too. Watch whether it comes back now that he's no longer limited.`;
+        tag = { label: "Injury ▼", tone: "warn" };
+      } else if (injury) {
+        verdict = `Part of the drop came while he was hurt (Week ${injurySummary.recent.week}). He's past it on the latest report, so his role could come back.`;
+        tag = { label: "Injury ▼", tone: "warn" };
+      } else if (share.direction === "down" && team) {
         verdict = "Two things at once: a smaller slice and less team volume. The shrinking slice is the part to worry about.";
-      else if (share.direction === "down") verdict = "Losing work to teammates. A real role change, keep an eye on it.";
-      else if (team) verdict = "His slice is holding, the team just has less to go around. Could bounce back.";
-      else verdict = "Usage down without a clear cause. Could be game script, watch one more week.";
+        tag = { label: "Role ▼", tone: "bad" };
+      } else if (share.direction === "down") {
+        verdict = "Losing work to teammates. A real role change, keep an eye on it.";
+        tag = { label: "Role ▼", tone: "bad" };
+      } else if (team) {
+        verdict = "His slice is holding, the team just has less to go around. Could bounce back.";
+        tag = { label: "Volume ▼", tone: "warn" };
+      } else {
+        verdict = "Usage down without a clear cause. Could be game script, watch one more week.";
+        tag = { label: "Usage ▼", tone: "warn" };
+      }
     } else if (usageDiff >= 1) {
-      verdict = share.direction === "up" ? "Role growing. He's earning a bigger share." : "More volume, mostly from the team. Nice, but not a new role yet.";
+      if (share.direction === "up") {
+        verdict = "Role growing. He's earning a bigger share.";
+        tag = { label: "Role ▲", tone: "good" };
+      } else {
+        verdict = "More volume, mostly from the team. Nice, but not a new role yet.";
+        tag = { label: "Volume ▲", tone: "good" };
+      }
     }
   } else if (mate) {
     verdict = "Watch the QB situation.";
+    tag = { label: "QB watch", tone: "warn" };
   }
 
-  return { verdict, lines };
+  // A game status on THIS week's report matters even if his usage looks fine.
+  const thisWeek = injurySummary && injurySummary.thisWeek;
+  if (!tag && thisWeek && thisWeek.status) {
+    const serious = thisWeek.status === "Out" || thisWeek.status === "Doubtful";
+    tag = { label: "Injury", tone: serious ? "bad" : "warn" };
+  }
+
+  return { verdict, lines, tag };
 }

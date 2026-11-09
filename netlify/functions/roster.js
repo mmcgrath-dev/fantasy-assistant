@@ -1,6 +1,6 @@
 // This function gets your roster from ESPN for the current week,
 // cleans it up, adds up your starters' projected points,
-// and looks up each player's snap trend, game log and role context in your Supabase database.
+// and looks up each player's game log, role context and injury history in your Supabase database.
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -48,34 +48,6 @@ function getSupabase() {
     return null;
   }
   return createClient(SUPABASE_URL, SUPABASE_SECRET_KEY);
-}
-
-// Asks Supabase for the snap trend of every player whose ESPN ID is in the list.
-// Returns a lookup like { "4890973": { last2: 56, prior2: 76, change: -20, trend: "down" } }
-//
-// If anything goes wrong (Supabase is down, a typo in the function name), it returns
-// an empty lookup instead of crashing. Your roster still shows up, just without trends.
-async function getSnapTrends(supabase, espnIds) {
-  if (!supabase) return {};
-
-  // .rpc calls a database function by name, here the get_snap_trends function
-  // from supabase/10_snap_trends.sql. The object holds its input.
-  const { data, error } = await supabase.rpc("get_snap_trends", { espn_ids: espnIds });
-  if (error) {
-    console.log("Snap trends failed:", error.message);
-    return {};
-  }
-
-  const trends = {};
-  for (const row of data) {
-    trends[row.espn_id] = {
-      last2: row.last_2,
-      prior2: row.prior_2,
-      change: row.change,
-      trend: row.trend,
-    };
-  }
-  return trends;
 }
 
 // Asks Supabase for every game this season for every player in the list
@@ -188,6 +160,35 @@ async function getRoleContext(supabase, espnIds) {
   return context;
 }
 
+// Asks Supabase for every injury report entry this season (get_injury_history
+// from supabase/13_injury_history.sql). Returns a lookup of ESPN ID -> list of
+// reports, newest week first. Same safety net: empty lookup if it fails.
+async function getInjuryHistory(supabase, espnIds) {
+  if (!supabase) return {};
+
+  const { data, error } = await supabase.rpc("get_injury_history", { espn_ids: espnIds });
+  if (error) {
+    console.log("Injury history failed:", error.message);
+    return {};
+  }
+
+  const history = {};
+  for (const row of data) {
+    if (!history[row.espn_id]) {
+      history[row.espn_id] = [];
+    }
+    history[row.espn_id].push({
+      week: row.week,
+      status: row.game_status,
+      type: row.injury,
+      secondary: row.injury_secondary,
+      practice: row.practice_status,
+      note: row.practice_note,
+    });
+  }
+  return history;
+}
+
 export default async () => {
   // 1. Read settings from .env
   const leagueId = process.env.ESPN_LEAGUE_ID;
@@ -279,23 +280,23 @@ export default async () => {
       };
     });
 
-    // 7. Look up snap trends, game logs and role context for the whole roster,
+    // 7. Look up game logs, role context and injury history for the whole roster,
     //    then attach them to each player.
     //    Promise.all runs all three database calls at the same time instead of one
     //    after the other, so the page loads faster. It waits until all of them finish.
-    //    Kickers and D/ST get null for the trend and an empty game log,
+    //    Kickers and D/ST get no role context and an empty game log,
     //    which the page shows as a dash.
     const supabase = getSupabase();
     const espnIds = players.map((p) => p.espnId);
-    const [trends, gameLogs, roleContext] = await Promise.all([
-      getSnapTrends(supabase, espnIds),
+    const [gameLogs, roleContext, injuryHistory] = await Promise.all([
       getGameLogs(supabase, espnIds),
       getRoleContext(supabase, espnIds),
+      getInjuryHistory(supabase, espnIds),
     ]);
     for (const player of players) {
-      player.snapTrend = trends[player.espnId] || null;
       player.gameLog = gameLogs[player.espnId] || [];
       player.roleContext = roleContext[player.espnId] || null;
+      player.injuries = injuryHistory[player.espnId] || [];
     }
 
     // 8. Sort players into lineup order.

@@ -130,31 +130,37 @@
   color: var(--muted);
 }
 
-/* ---------- Snap trend column ---------- */
+/* ---------- Trend column (row tag) ---------- */
 
-/* Keeps "56% ▼ 20" on one line instead of wrapping on small screens. */
-.snaps {
+/* Keeps "Volume ▼" on one line instead of wrapping on small screens. */
+.trend-cell {
   white-space: nowrap;
 }
 
-.trend {
+.tag {
+  padding: 2px 8px;
+  border-radius: 4px;
   font-size: 0.75rem;
   font-weight: 700;
 }
 
-.trend-up {
+.tag-good {
+  background: rgba(63, 185, 80, 0.18);
   color: var(--accent);
 }
 
-.trend-down {
+.tag-warn {
+  background: #3d3416;
+  color: var(--warning);
+}
+
+.tag-bad {
+  background: #3d1c1c;
   color: var(--danger);
 }
 
-.trend-steady {
-  color: var(--muted);
-}
-
-.trend-none {
+.tag-none {
+  font-size: 0.75rem;
   color: var(--muted);
 }
 
@@ -282,6 +288,11 @@
   padding-left: 18px;
   font-size: 0.85rem;
   line-height: 1.5;
+}
+
+/* The Injury box sits right under the Why box, with a red edge so it stands out. */
+.injury {
+  border-left: 3px solid var(--danger);
 }
 
 /* Long sentences should wrap, even though the rest of the table doesn't. */
