@@ -55,14 +55,14 @@ returns table (
 language sql
 stable
 as $$
-  with roster as (
+  with roster as materialized (
     select p.gsis_id, p.espn_id, p.team, p.position
     from players p
     where p.espn_id = any (espn_ids)
       and p.position in ('WR', 'TE', 'RB')
   ),
 
-  opponents as (
+  opponents as materialized (
     -- who each player's team plays that week (none if they're on bye)
     select
       r.gsis_id,
@@ -72,6 +72,18 @@ as $$
       on  s.season = 2026
       and s.week = for_week
       and r.team in (s.home_team, s.away_team)
+  ),
+
+  defense as materialized (
+    -- this week's opponents' numbers, built ONCE up front. "materialized" tells
+    -- the database to work this out a single time and reuse it, instead of
+    -- rebuilding the whole defense view for every row (that made it take
+    -- seconds instead of a fraction of a second)
+    select d.defense, d.position, d.area, d.targets, d.rank_per_target,
+           d.ppr_per_target, d.league_ppr_per_target, d.vs_league_adj
+    from defense_vs_target_area d
+    where d.season = 2026
+      and d.defense in (select opponent from opponents)
   ),
 
   his_areas as (
@@ -121,9 +133,8 @@ as $$
     join opponents o  on o.gsis_id  = r.gsis_id
     join his_areas h  on h.gsis_id  = r.gsis_id
     join his_totals ht on ht.gsis_id = r.gsis_id
-    left join defense_vs_target_area d
-      on  d.season   = 2026
-      and d.defense  = o.opponent
+    left join defense d
+      on  d.defense  = o.opponent
       and d.position = r.position
       and d.area     = h.area
   )

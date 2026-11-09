@@ -39,7 +39,10 @@ drop view if exists public.defense_vs_target_area;
 create view public.defense_vs_target_area
 with (security_invoker = true)   -- runs with the permissions of whoever asks, so it can't be used to sneak around table permissions
 as
-with tagged as (
+-- Each step below is "materialized": worked out once and saved for the next
+-- step. Without that, the database sometimes chose to redo the per-defense
+-- game counts hundreds of times, which made the matchup function time out.
+with tagged as materialized (
   -- every target, tagged with the receiver's position and the area it went to
   select
     t.season,
@@ -63,14 +66,14 @@ with tagged as (
     and t.pass_location is not null    -- those can't go in an area, so they're left out
 ),
 
-defense_games as (
+defense_games as materialized (
   -- how many games each defense has played, to turn totals into per-game numbers
   select season, defense, count(distinct game_id) as games
   from tagged
   group by season, defense
 ),
 
-by_area as (
+by_area as materialized (
   -- the main totals: one row per defense, position and area
   select
     season,
@@ -87,7 +90,7 @@ by_area as (
   group by season, defense, position, depth, side
 ),
 
-league as (
+league as materialized (
   -- the league average for each position and area, so every defense has
   -- something to be compared against
   select
