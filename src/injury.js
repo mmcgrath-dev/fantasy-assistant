@@ -15,6 +15,11 @@ export function isAffected(report) {
   return Boolean(report.status) || (report.practice != null && report.practice !== "Full");
 }
 
+// True for report entries like "Not injury related - resting player"
+function isNotInjury(type) {
+  return Boolean(type) && /not injury related/i.test(type);
+}
+
 function practiceWords(practice) {
   if (practice === "DNP") return "did not practice";
   if (practice === "Limited") return "limited in practice";
@@ -45,8 +50,19 @@ function averageOf(games, getValue) {
 //   reports:     his injury reports, newest week first
 //   games:       his game log, newest week first
 //   currentWeek: the week ESPN says it is
-export function injurySummary(reports, games, currentWeek) {
-  if (!reports || reports.length === 0) return null;
+export function injurySummary(allReports, games, currentWeek) {
+  if (!allReports) return null;
+
+  // Teams also have to list players who sit out practice for reasons that
+  // aren't injuries, like veteran rest days ("Not injury related - resting
+  // player") or a personal matter. Those aren't injuries, so they're left out.
+  // If a real injury was listed next to one, the real injury is kept.
+  const reports = allReports
+    .map((r) => (isNotInjury(r.type) ? { ...r, type: r.secondary, secondary: null } : r))
+    .map((r) => (isNotInjury(r.secondary) ? { ...r, secondary: null } : r))
+    .filter((r) => r.type);
+
+  if (reports.length === 0) return null;
 
   const latest = reports[0];
   // This week's report, if he's on it. That's the one that matters for this week's lineup.

@@ -1,6 +1,6 @@
 // This function gets your roster from ESPN for the current week,
 // cleans it up, adds up your starters' projected points,
-// and looks up each player's game log, role context and injury history in your Supabase database.
+// and looks up each player's game log, role context, injury history and matchup in your Supabase database.
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -189,6 +189,54 @@ async function getInjuryHistory(supabase, espnIds) {
   return history;
 }
 
+// Asks Supabase where each player gets the ball (targets, and carries for
+// backs) and how this week's defense does against plays going to those same
+// spots (get_matchup_areas from supabase/16_matchup_areas.sql).
+// Returns a lookup of ESPN ID -> matchup, like
+//   { "4890973": { opponent: "SEA", edgePerGame: -0.1, targets: [...], runs: [...] } }
+// Kickers, D/ST, QBs and anyone without an unplayed game this week or next
+// aren't in it. Empty lookup if it fails.
+async function getMatchupAreas(supabase, espnIds, week) {
+  if (!supabase) return {};
+
+  const { data, error } = await supabase.rpc("get_matchup_areas", { espn_ids: espnIds, for_week: week });
+  if (error) {
+    console.log("Matchup areas failed:", error.message);
+    return {};
+  }
+
+  const matchups = {};
+  for (const row of data) {
+    // The first row for a player sets up his matchup; every row adds one area or lane.
+    if (!matchups[row.espn_id]) {
+      matchups[row.espn_id] = {
+        week: row.week,
+        opponent: row.opponent,
+        edgeTargets: row.edge_targets_per_game,
+        edgeRuns: row.edge_runs_per_game,
+        edgePerGame: row.edge_per_game,
+        targets: [],
+        runs: [],
+      };
+    }
+    const spot = {
+      area: row.area,
+      hisCount: row.his_count,
+      hisShare: row.his_share,
+      defCount: row.def_count,
+      defRank: row.def_rank,
+      defPerPlay: row.def_per_play,       // targets: PPR per target. runs: yards per carry
+      leaguePerPlay: row.league_per_play,
+    };
+    if (row.kind === "run") {
+      matchups[row.espn_id].runs.push(spot);
+    } else {
+      matchups[row.espn_id].targets.push(spot);
+    }
+  }
+  return matchups;
+}
+
 export default async () => {
   // 1. Read settings from .env
   const leagueId = process.env.ESPN_LEAGUE_ID;
@@ -280,23 +328,25 @@ export default async () => {
       };
     });
 
-    // 7. Look up game logs, role context and injury history for the whole roster,
-    //    then attach them to each player.
-    //    Promise.all runs all three database calls at the same time instead of one
+    // 7. Look up game logs, role context, injury history and this week's matchup
+    //    for the whole roster, then attach them to each player.
+    //    Promise.all runs all four database calls at the same time instead of one
     //    after the other, so the page loads faster. It waits until all of them finish.
     //    Kickers and D/ST get no role context and an empty game log,
     //    which the page shows as a dash.
     const supabase = getSupabase();
     const espnIds = players.map((p) => p.espnId);
-    const [gameLogs, roleContext, injuryHistory] = await Promise.all([
+    const [gameLogs, roleContext, injuryHistory, matchups] = await Promise.all([
       getGameLogs(supabase, espnIds),
       getRoleContext(supabase, espnIds),
       getInjuryHistory(supabase, espnIds),
+      getMatchupAreas(supabase, espnIds, week),
     ]);
     for (const player of players) {
       player.gameLog = gameLogs[player.espnId] || [];
       player.roleContext = roleContext[player.espnId] || null;
       player.injuries = injuryHistory[player.espnId] || [];
+      player.matchup = matchups[player.espnId] || null;
     }
 
     // 8. Sort players into lineup order.

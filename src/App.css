@@ -300,3 +300,59 @@
 .why-lines li {
   white-space: normal;
 }
+
+/* ---------- Matchup box ---------- */
+
+/* Colored edge like the Injury box: green for a good matchup, red for a tough one,
+   gray for about average. */
+.matchup-good {
+  border-left: 3px solid var(--accent);
+}
+
+.matchup-bad {
+  border-left: 3px solid var(--danger);
+}
+
+.matchup-neutral {
+  border-left: 3px solid var(--border);
+}
+
+.matchup-table {
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.matchup-table th {
+  padding: 4px 10px;
+  text-align: left;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.matchup-table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.matchup-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* "deep right" reads better as "Deep right" */
+.matchup-area::first-letter {
+  text-transform: uppercase;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+/* Space between the receiving table and the running table */
+.matchup-table + .matchup-table {
+  margin-top: 14px;
+}

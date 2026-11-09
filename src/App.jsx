@@ -184,9 +184,139 @@ function Injury({ injury }) {
   );
 }
 
+// The Matchup box: where he gets the ball this season (targets, and carries
+// for backs), lined up against what this week's defense gives up on plays
+// going to those same spots. The numbers come from get_matchup_areas in the
+// database (16_matchup_areas.sql).
+//   edgePerGame: about how many more (+) or fewer (-) PPR points he should get
+//                than against an average defense. For backs it's the receiving
+//                part (edgeTargets) plus the running part (edgeRuns).
+const SMALL_SAMPLE = 10; // fewer plays than this faced in a spot = take it with a grain of salt
+
+// Points per target always with 2 decimals, so 1.5 shows as 1.50 and lines up with 1.53.
+function twoDecimals(value) {
+  return value == null ? "-" : Number(value).toFixed(2);
+}
+
+// Yards per carry with 1 decimal, so 4 shows as 4.0.
+function oneDecimal(value) {
+  return value == null ? "-" : Number(value).toFixed(1);
+}
+
+// +0.7 / -0.8 / 0
+function signed(value) {
+  return `${value > 0 ? "+" : ""}${value}`;
+}
+
+// The headline, from the total edge.
+function matchupHeadline(m) {
+  const edge = m.edgePerGame;
+  const amount = `${signed(edge)} PPR vs an average defense`;
+  if (edge >= 1) return `Great spot (${amount}).`;
+  if (edge >= 0.4) return `Good spot (${amount}).`;
+  if (edge > -0.4) return `About an average matchup (${amount}).`;
+  if (edge > -1) return `Tougher spot (${amount}).`;
+  return `Tough spot (${amount}).`;
+}
+
+// One line about his most common spot, like
+// "45% of his carries go middle, where SEA ranks 32nd of 32 (toughest)."
+function topSpotLine(spots, kind, opponent) {
+  const top = spots[0];
+  if (!top || !top.defRank) return null;
+  const what = kind === "run" ? "carries go" : "targets go";
+  const ease = top.defRank <= 8 ? " (one of the easiest)" : top.defRank >= 25 ? " (one of the toughest)" : "";
+  const where = top.area === "middle" ? "up the middle" : top.area;
+  return `${top.hisShare}% of his ${what} ${where}, where ${opponent} ranks ${top.defRank} of 32${ease}.`;
+}
+
+// One table: his targets by area, or his carries by lane.
+function SpotTable({ spots, kind, opponent, pos }) {
+  const isRun = kind === "run";
+  return (
+    <table className="matchup-table">
+      <thead>
+        <tr>
+          <th>{isRun ? "Run lane" : "Target area"}</th>
+          <th className="num">{isRun ? "His carries" : "His targets"}</th>
+          <th className="num">{opponent} rank</th>
+          <th className="num">{isRun ? `${opponent} yds/carry` : `${opponent} per target`}</th>
+          <th className="num">Avg defense</th>
+        </tr>
+      </thead>
+      <tbody>
+        {spots.map((s) => {
+          const small = s.defCount != null && s.defCount < SMALL_SAMPLE;
+          const what = isRun ? `RB carries ${s.area}` : `throws ${s.area} to ${pos}s`;
+          return (
+            <tr key={s.area}>
+              <td className="matchup-area">{s.area}</td>
+              <td className="num">
+                {s.hisCount} <span className="muted">({s.hisShare}%)</span>
+              </td>
+              <td
+                className={`num ${defenseColor(s.defRank)}`}
+                title={
+                  s.defRank
+                    ? `${s.defRank} of 32 on ${what} (1 = easiest)` +
+                      (small ? `. Only ${s.defCount} faced here, so it's toned down.` : "")
+                    : `${opponent} hasn't faced any ${what} yet`
+                }
+              >
+                {s.defRank ? `${s.defRank}${small ? "*" : ""}` : "-"}
+              </td>
+              <td className="num">{isRun ? oneDecimal(s.defPerPlay) : twoDecimals(s.defPerPlay)}</td>
+              <td className="num muted">{isRun ? oneDecimal(s.leaguePerPlay) : twoDecimals(s.leaguePerPlay)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function Matchup({ matchup, pos }) {
+  if (!matchup) return null;
+  const m = matchup;
+  const tone = m.edgePerGame >= 0.4 ? "good" : m.edgePerGame <= -0.4 ? "bad" : "neutral";
+  const hasRuns = m.runs.length > 0;
+
+  // Under the headline: what each half is worth, and his main spot for each.
+  const lines = [];
+  if (hasRuns) {
+    lines.push(`Receiving: ${signed(m.edgeTargets)}. ${topSpotLine(m.targets, "target", m.opponent) || ""}`);
+    lines.push(`Running: ${signed(m.edgeRuns)}. ${topSpotLine(m.runs, "run", m.opponent) || ""}`);
+  } else {
+    const line = topSpotLine(m.targets, "target", m.opponent);
+    if (line) lines.push(line);
+  }
+
+  return (
+    <div className={`why matchup matchup-${tone}`}>
+      <div className="why-title">
+        Matchup · Week {m.week} vs {m.opponent} · where he gets the ball
+      </div>
+      <p className="why-verdict">{matchupHeadline(m)}</p>
+      {lines.length > 0 && (
+        <ul className="why-lines">
+          {lines.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      )}
+      {m.targets.length > 0 && <SpotTable spots={m.targets} kind="target" opponent={m.opponent} pos={pos} />}
+      {hasRuns && <SpotTable spots={m.runs} kind="run" opponent={m.opponent} pos={pos} />}
+      <p className="game-log-key">
+        Rank is out of 32, 1 = easiest. * = small sample, toned down. Short is under 15 air yards, deep is 15+.
+        {hasRuns && " Run lanes are ranked on yards per carry (TDs are too random to judge a defense by)."}
+      </p>
+    </div>
+  );
+}
+
 // The panel that opens under a player's row: the Why box, the Injury box,
-// then one line per game this season, plus his season average at the bottom.
-function GameLog({ games, context, injury }) {
+// the Matchup box, then one line per game this season, plus his season average at the bottom.
+function GameLog({ games, context, injury, matchup }) {
   const pos = games[0].position;
   const middleColumns = POSITION_COLUMNS[pos] || POSITION_COLUMNS.WR;
 
@@ -194,6 +324,7 @@ function GameLog({ games, context, injury }) {
     <div className="game-log">
       <Why context={context} injury={injury} />
       <Injury injury={injury} />
+      <Matchup matchup={matchup} pos={pos} />
       <div className="game-log-scroll">
         <table className="game-log-table">
           <thead>
@@ -388,7 +519,12 @@ function App() {
                   {isOpen && (
                     <tr className="log-row">
                       <td colSpan={7}>
-                        <GameLog games={player.gameLog} context={player.roleContext} injury={injury} />
+                        <GameLog
+                          games={player.gameLog}
+                          context={player.roleContext}
+                          injury={injury}
+                          matchup={player.matchup}
+                        />
                       </td>
                     </tr>
                   )}
