@@ -24,6 +24,8 @@
 -- some rows will only have 2 or 3 targets. The targets column is there so the
 -- app can ignore rows that are too small to mean anything.
 --
+-- Rerunning this file is safe: it drops the old view and rebuilds it.
+--
 -- Try it after running this file. The 5 defenses that give up the most
 -- points per game on deep right throws to WRs:
 --   select defense, targets, ppr_per_game, ppr_per_target, rank
@@ -115,11 +117,22 @@ select
   round(a.ppr / a.targets, 2)             as ppr_per_target,     -- points given up per throw here
   round(l.ppr_per_target, 2)              as league_ppr_per_target,
   round(a.ppr / a.targets - l.ppr_per_target, 2) as vs_league,  -- positive = worse than average defense
+  -- vs_league toned down for small samples: 20 targets counts half, 60 counts 75%,
+  -- so a defense that's seen 3 deep throws can't look like the worst in the league
+  round((a.ppr / a.targets - l.ppr_per_target) * a.targets / (a.targets + 20.0), 2) as vs_league_adj,
   -- 1 = gives up the most points per game in this area to this position
+  -- (counts volume too: how often teams throw there AND how much it gives up)
   rank() over (
     partition by a.season, a.position, a.depth, a.side
     order by a.ppr / g.games desc
-  )                                       as rank
+  )                                       as rank,
+  -- 1 = gives up the most per throw here, after toning down small samples.
+  -- This is the one for matchups: his role decides how often he's targeted
+  -- there, the defense decides how much each of those targets is worth.
+  rank() over (
+    partition by a.season, a.position, a.depth, a.side
+    order by (a.ppr / a.targets - l.ppr_per_target) * a.targets / (a.targets + 20.0) desc
+  )                                       as rank_per_target
 from by_area a
 join defense_games g on g.season = a.season and g.defense = a.defense
 join league l
