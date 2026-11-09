@@ -25,6 +25,18 @@
 --      doesn't explain is the best time to sell, because the other manager
 --      just watched it happen.
 --
+--   4. Efficiency (is he doing anything with the ball?)
+--      Volume alone can fool you. A back getting more carries at 2.6 yards a
+--      carry usually loses that work. So: yards per carry and yards per target
+--      vs the league average at his position, plus rush yards over expected
+--      (Next Gen Stats) when it's available.
+--
+--   5. Goal-line role (inside the 5)
+--      His share of his team's carries and targets inside the 5, last 3 games
+--      vs before, and which teammate got the most of them lately. "He's due
+--      for TDs" only holds if he's still the one getting the ball near the
+--      goal line. If a teammate is taking those, it's his role, not bad luck.
+--
 -- The app turns these numbers into the actual sell / buy / hold call and the
 -- sentences (src/trades.js), the same way why.js does for the Why box.
 --
@@ -47,6 +59,8 @@ returns table (
   ppr_prior        numeric,   -- average over his games before those 3
   touches_last3    numeric,   -- carries + targets per game
   touches_prior    numeric,
+  targets_last3    numeric,   -- targets per game (for backs: how big his passing-game role is)
+  targets_prior    numeric,
   snaps_last3      numeric,   -- snap %, 74 means 74%
   snaps_prior      numeric,
   red_zone_last3   numeric,   -- carries + targets inside the 20, per game
@@ -56,7 +70,19 @@ returns table (
   td_luck          numeric,   -- tds - expected_tds. +2 = two more than expected
   last_game_week   integer,
   last_game_ppr    numeric,
-  avg_before_last  numeric    -- his average before that last game
+  avg_before_last  numeric,   -- his average before that last game
+  ypc_last3        numeric,   -- yards per designed carry (no QB scrambles)
+  ypc_season       numeric,
+  league_rb_ypc    numeric,   -- every RB in the league, for comparison
+  ryoe_per_carry   numeric,   -- rush yards over expected per carry (Next Gen Stats, starter-level games only)
+  ypt_last3        numeric,   -- receiving yards per target
+  ypt_season       numeric,
+  league_ypt       numeric,   -- every player at his position, for comparison
+  gl_share_last3   numeric,   -- % of his team's plays inside the 5 that went to him
+  gl_share_prior   numeric,
+  gl_team_last3    integer,   -- how many plays inside the 5 his team ran in those games
+  gl_mate_name     text,      -- the teammate with the most touches inside the 5 lately
+  gl_mate_count    integer
 )
 language sql
 stable
@@ -126,6 +152,7 @@ as $$
       w.week,
       w.fantasy_points_ppr                              as ppr,
       coalesce(w.carries, 0) + coalesce(w.targets, 0)   as touches,
+      coalesce(w.targets, 0)                            as targets,
       100 * sn.offense_pct                              as snaps,
       row_number() over (partition by w.gsis_id order by w.week desc) as game_num
     from weekly_stats w
@@ -148,6 +175,111 @@ as $$
     group by z.gsis_id, z.week
   ),
 
+  -- ---------- efficiency ----------
+
+  his_last3_weeks as materialized (
+    select gsis_id, week, game_num from his_games
+  ),
+
+  carry_eff as (
+    -- yards per designed carry, his last 3 games and the season
+    select
+      x.rusher_id as gsis_id,
+      sum(x.rushing_yards)::numeric / nullif(count(*), 0)                              as ypc_season,
+      sum(x.rushing_yards) filter (where w.game_num <= 3)::numeric
+        / nullif(count(*) filter (where w.game_num <= 3), 0)                             as ypc_last3
+    from rushes x
+    join his_last3_weeks w on w.gsis_id = x.rusher_id and w.week = x.week
+    where x.season = 2026 and coalesce(x.qb_scramble, false) = false
+    group by x.rusher_id
+  ),
+
+  league_ypc as (
+    select sum(x.rushing_yards)::numeric / nullif(count(*), 0) as ypc
+    from rushes x
+    join players p on p.gsis_id = x.rusher_id
+    where x.season = 2026 and p.position = 'RB' and coalesce(x.qb_scramble, false) = false
+  ),
+
+  ryoe as (
+    -- Next Gen Stats only has starter-level games, so this can be missing
+    select a.gsis_id,
+           sum(a.rush_yards_over_expected) / nullif(sum(a.carries), 0) as ryoe_per_carry
+    from rushing_advanced a
+    join roster ro on ro.gsis_id = a.gsis_id
+    where a.season = 2026 and a.week > 0
+    group by a.gsis_id
+  ),
+
+  target_eff as (
+    select
+      t.receiver_id as gsis_id,
+      sum(coalesce(t.receiving_yards, 0))::numeric / nullif(count(*), 0)                as ypt_season,
+      sum(coalesce(t.receiving_yards, 0)) filter (where w.game_num <= 3)::numeric
+        / nullif(count(*) filter (where w.game_num <= 3), 0)                             as ypt_last3
+    from targets t
+    join his_last3_weeks w on w.gsis_id = t.receiver_id and w.week = t.week
+    where t.season = 2026
+    group by t.receiver_id
+  ),
+
+  league_ypt as (
+    select p.position, sum(coalesce(t.receiving_yards, 0))::numeric / nullif(count(*), 0) as ypt
+    from targets t
+    join players p on p.gsis_id = t.receiver_id
+    where t.season = 2026 and p.position in ('RB', 'WR', 'TE')
+    group by p.position
+  ),
+
+  -- ---------- goal-line role (inside the 5) ----------
+
+  gl_plays as materialized (
+    -- every carry and target inside the 5, with the offense and who got it
+    select x.team, x.week, x.rusher_id as gsis_id from rushes x
+    where x.season = 2026 and x.yardline_100 <= 5 and coalesce(x.qb_scramble, false) = false
+    union all
+    select t.team, t.week, t.receiver_id from targets t
+    where t.season = 2026 and t.yardline_100 <= 5
+  ),
+
+  his_gl_games as materialized (
+    -- for each of his games: his team's plays inside the 5 and how many were his
+    select
+      g.gsis_id,
+      g.game_num,
+      count(gp.*)                                                   as team_plays,
+      count(gp.*) filter (where gp.gsis_id = g.gsis_id)             as his_plays
+    from his_games g
+    join weekly_stats w on w.gsis_id = g.gsis_id and w.season = 2026 and w.week = g.week
+    left join gl_plays gp on gp.team = w.team and gp.week = g.week
+    group by g.gsis_id, g.game_num
+  ),
+
+  gl_share as (
+    select
+      gsis_id,
+      100.0 * sum(his_plays) filter (where game_num <= 3) / nullif(sum(team_plays) filter (where game_num <= 3), 0) as last3,
+      100.0 * sum(his_plays) filter (where game_num > 3)  / nullif(sum(team_plays) filter (where game_num > 3), 0)  as prior,
+      sum(team_plays) filter (where game_num <= 3)                                                                as team_last3
+    from his_gl_games
+    group by gsis_id
+  ),
+
+  gl_mates as (
+    -- teammates' touches inside the 5 during his last 3 games; keep the top one
+    select distinct on (g.gsis_id)
+      g.gsis_id,
+      mp.full_name   as mate_name,
+      count(*)       as mate_count
+    from his_games g
+    join weekly_stats w on w.gsis_id = g.gsis_id and w.season = 2026 and w.week = g.week
+    join gl_plays gp on gp.team = w.team and gp.week = g.week and gp.gsis_id <> g.gsis_id
+    join players mp on mp.gsis_id = gp.gsis_id and mp.position in ('RB', 'WR', 'TE')
+    where g.game_num <= 3
+    group by g.gsis_id, mp.full_name
+    order by g.gsis_id, count(*) desc
+  ),
+
   summary as (
     select
       g.gsis_id,
@@ -157,6 +289,8 @@ as $$
       avg(g.ppr)      filter (where g.game_num > 3)                as ppr_prior,
       avg(g.touches)  filter (where g.game_num <= 3)               as touches_last3,
       avg(g.touches)  filter (where g.game_num > 3)                as touches_prior,
+      avg(g.targets)  filter (where g.game_num <= 3)               as targets_last3,
+      avg(g.targets)  filter (where g.game_num > 3)                as targets_prior,
       avg(g.snaps)    filter (where g.game_num <= 3)               as snaps_last3,
       avg(g.snaps)    filter (where g.game_num > 3)                as snaps_prior,
       avg(coalesce(z.rz, 0)) filter (where g.game_num <= 3)        as red_zone_last3,
@@ -178,6 +312,8 @@ as $$
     round(s.ppr_prior, 1),
     round(s.touches_last3, 1),
     round(s.touches_prior, 1),
+    round(s.targets_last3, 1),
+    round(s.targets_prior, 1),
     round(s.snaps_last3, 0),
     round(s.snaps_prior, 0),
     round(s.red_zone_last3, 1),
@@ -187,10 +323,28 @@ as $$
     round(coalesce(t.tds, 0) - coalesce(t.expected_tds, 0), 1),
     s.last_game_week,
     round(s.last_game_ppr, 1),
-    round(s.avg_before_last, 1)
+    round(s.avg_before_last, 1),
+    round(ce.ypc_last3, 1),
+    round(ce.ypc_season, 1),
+    round((select ypc from league_ypc), 1),
+    round(ry.ryoe_per_carry, 2),
+    round(te.ypt_last3, 1),
+    round(te.ypt_season, 1),
+    round(ly.ypt, 1),
+    round(gs.last3, 0),
+    round(gs.prior, 0),
+    gs.team_last3::integer,
+    gm.mate_name,
+    gm.mate_count::integer
   from roster ro
   join summary s on s.gsis_id = ro.gsis_id
-  left join his_tds t on t.gsis_id = ro.gsis_id
+  left join his_tds t     on t.gsis_id  = ro.gsis_id
+  left join carry_eff ce  on ce.gsis_id = ro.gsis_id
+  left join ryoe ry       on ry.gsis_id = ro.gsis_id
+  left join target_eff te on te.gsis_id = ro.gsis_id
+  left join league_ypt ly on ly.position = ro.position
+  left join gl_share gs   on gs.gsis_id = ro.gsis_id
+  left join gl_mates gm   on gm.gsis_id = ro.gsis_id
   where s.games >= 4;
 $$;
 
