@@ -26,7 +26,9 @@
 -- The shrinking happens in the defense_vs_target_area view (vs_league_adj),
 -- so run 15_defense_vs_target_area.sql again before this file.
 --
--- Players on bye that week (no game in the schedule) aren't returned.
+-- It uses his team's next game that hasn't been played yet: the week you ask
+-- for, or the week after if that game is already over (or he's on bye).
+-- Players with no unplayed game in those two weeks aren't returned.
 --
 -- Try it after running this file (use the current week):
 --   select * from get_matchup_areas(
@@ -39,7 +41,7 @@ drop function if exists public.get_matchup_areas(text[], integer);
 create or replace function public.get_matchup_areas(espn_ids text[], for_week integer)
 returns table (
   espn_id             text,
-  week                integer,
+  week                integer,   -- the week of the game being looked at
   opponent            text,
   area                text,      -- like 'deep right'
   his_targets         integer,   -- his targets to this area this season
@@ -63,15 +65,22 @@ as $$
   ),
 
   opponents as materialized (
-    -- who each player's team plays that week (none if they're on bye)
-    select
+    -- his team's next game that hasn't been played yet, starting from for_week.
+    -- ESPN keeps calling it "Week 9" until Monday night is over, but by Monday
+    -- most teams have already played, so for them this looks ahead to Week 10.
+    -- If his team is on bye that week, it also lands on the game after.
+    -- Only looks one week ahead, so nothing too far out.
+    select distinct on (r.gsis_id)
       r.gsis_id,
+      s.week,
       case when s.home_team = r.team then s.away_team else s.home_team end as opponent
     from roster r
     join schedule s
       on  s.season = 2026
-      and s.week = for_week
+      and s.week between for_week and for_week + 1
+      and s.home_score is null              -- not played yet
       and r.team in (s.home_team, s.away_team)
+    order by r.gsis_id, s.week
   ),
 
   defense as materialized (
@@ -118,6 +127,7 @@ as $$
     -- each of his areas next to what this week's defense allows there
     select
       r.espn_id,
+      o.week,
       o.opponent,
       h.area,
       h.targets                           as his_targets,
@@ -141,7 +151,7 @@ as $$
 
   select
     espn_id,
-    for_week                              as week,
+    week,                                 -- the week of the game it found
     opponent,
     area,
     his_targets::integer,
