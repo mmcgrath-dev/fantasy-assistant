@@ -66,3 +66,7 @@ jobs:
 
       - name: Load advanced stats
         run: node scripts/load-advanced-stats.js
+
+      # Every game this season: byes, opponents, final scores, Vegas lines
+      - name: Load schedule
+        run: node scripts/load-schedule.js
