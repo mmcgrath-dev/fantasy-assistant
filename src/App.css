@@ -356,3 +356,321 @@
 .matchup-table + .matchup-table {
   margin-top: 14px;
 }
+
+/* ---------- Tabs (My Team / Trades) ---------- */
+
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  padding: 8px 14px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* ---------- Trades page ---------- */
+
+.trade-section {
+  margin-bottom: 16px;
+}
+
+.trade-note {
+  margin: 4px 0 10px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.trade-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trade-player {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.trade-player-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.trade-name {
+  font-weight: 700;
+}
+
+.trade-player-right {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.85rem;
+}
+
+/* The SELL / BUY / HOLD badge */
+.call {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.call-sell {
+  color: var(--danger);
+  background: rgba(248, 81, 73, 0.15);
+}
+
+.call-buy {
+  color: var(--accent);
+  background: rgba(63, 185, 80, 0.15);
+}
+
+.call-hold {
+  color: var(--muted);
+  background: rgba(139, 150, 163, 0.12);
+}
+
+/* Your-roster rows open on click to show every reason */
+.clickable-row {
+  cursor: pointer;
+}
+
+.more {
+  list-style: none;
+  margin-left: -18px;
+  font-size: 0.8rem;
+}
+
+.small {
+  font-size: 0.8rem;
+}
+
+/* ---------- Suggested trade cards ---------- */
+
+.trade-card {
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+.trade-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.trade-gain {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.trade-sides {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 12px;
+  align-items: start;
+  margin: 10px 0;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.trade-arrow {
+  align-self: center;
+  font-size: 1.4rem;
+  color: var(--muted);
+}
+
+.trade-chip {
+  margin-top: 4px;
+}
+
+.trade-why .why-title {
+  margin-top: 8px;
+}
+
+/* ---------- Offense tag and box (Trades page) ---------- */
+
+.offense-tag {
+  font-weight: 700;
+}
+
+.offense-up {
+  color: var(--accent);
+}
+
+.offense-down {
+  color: var(--danger);
+}
+
+.offense-box {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--bg);
+  cursor: default;
+}
+
+.offense-takeaway {
+  margin: 4px 0 6px;
+  font-size: 0.9rem;
+}
+
+/* ---------- Before / after lineup on trade cards ---------- */
+
+.lineup-compare {
+  width: 100%;
+  margin: 4px 0 8px;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.lineup-compare th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 2px 8px 4px 0;
+}
+
+.lineup-compare td {
+  padding: 2px 8px 2px 0;
+}
+
+.lineup-out {
+  color: var(--danger);
+  text-decoration: line-through;
+}
+
+.lineup-in {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.lineup-total td {
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+  font-weight: 700;
+}
+
+/* ---------- Rest-of-season schedule ---------- */
+
+.sched-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.sched-cell {
+  min-width: 52px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--surface);
+  text-align: center;
+}
+
+.sched-playoffs {
+  outline: 1px solid var(--border);
+}
+
+.sched-soft {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.sched-tough {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.sched-note {
+  margin: 6px 0 0;
+}
+
+/* ---------- Trade calculator (shop a player) ---------- */
+
+.shop-button {
+  margin-top: 8px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.shop-button:hover {
+  background: #1d2630;
+}
+
+.shop-results {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--bg);
+  cursor: default;
+}
+
+/* ---------- Compact trade rows in the shopping box ---------- */
+
+.compact-trade {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.trade-arrow-small {
+  color: var(--muted);
+}
+
+.shop-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.shop-close {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.shop-close:hover {
+  color: var(--text);
+}
+
+.shop-close-bottom {
+  margin-top: 6px;
+}

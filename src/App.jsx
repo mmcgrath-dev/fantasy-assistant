@@ -3,6 +3,7 @@ import { useState, useEffect, Fragment } from "react";
 import "./App.css";
 import { buildWhy } from "./why.js";
 import { injurySummary } from "./injury.js";
+import Trades from "./Trades.jsx";
 
 // The small label on each roster row, like "Role ▼" in red.
 // It comes from the same rules as the Why box (buildWhy in why.js), so the row
@@ -391,7 +392,7 @@ function GameLog({ games, context, injury, matchup }) {
 
 // A component is a function that returns what should appear on the page.
 // App is the main component, the whole page lives inside it.
-function App() {
+function MyTeam() {
   // STATE: values React keeps track of. When state changes, React redraws the page.
   // roster starts as null (nothing loaded yet). setRoster is how we change it.
   const [roster, setRoster] = useState(null);
@@ -423,26 +424,18 @@ function App() {
 
   // While waiting or if something broke, show a simple message instead of the table.
   if (error) {
-    return (
-      <main className="app">
-        <p className="message">Something went wrong: {error}</p>
-      </main>
-    );
+    return <p className="message">Something went wrong: {error}</p>;
   }
 
   if (!roster) {
-    return (
-      <main className="app">
-        <p className="message">Loading your team...</p>
-      </main>
-    );
+    return <p className="message">Loading your team...</p>;
   }
 
   // Once roster has data, show the team.
   // This HTML-looking code is called JSX. Anything inside { } is regular JavaScript.
   // In JSX, CSS classes use className instead of class.
   return (
-    <main className="app">
+    <>
       <header className="team-header">
         <div>
           <h1>{roster.teamName}</h1>
@@ -534,6 +527,27 @@ function App() {
           </tbody>
         </table>
       </div>
+    </>
+  );
+}
+
+// The whole app: tabs at the top, then whichever page is picked.
+// Only the picked page is on screen, so the Trades page only asks ESPN for the
+// whole league when you open it.
+function App() {
+  const [page, setPage] = useState("team");
+
+  return (
+    <main className="app">
+      <nav className="tabs">
+        <button className={page === "team" ? "tab active" : "tab"} onClick={() => setPage("team")}>
+          My Team
+        </button>
+        <button className={page === "trades" ? "tab active" : "tab"} onClick={() => setPage("trades")}>
+          Trades
+        </button>
+      </nav>
+      {page === "team" ? <MyTeam /> : <Trades />}
     </main>
   );
 }
