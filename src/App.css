@@ -1300,3 +1300,8 @@
   color: var(--warning);
   font-weight: 700;
 }
+
+/* Trades counted on the Odds page */
+.odds-trades {
+  margin-top: 12px;
+}

@@ -3,11 +3,12 @@
 //   1. Your championship odds, playoff odds, and this week's win chance
 //   2. What one more point a week is worth to your title odds
 //   3. The luck meter for every team: real record vs all-play record
-// The numbers come from league-odds.js (ESPN scores and schedule) and the math
-// from odds.js.
+// The numbers come from league-odds.js (ESPN scores, schedule and trades),
+// rosterTrades.js (what each trade did to both lineups) and the math from odds.js.
 
 import { useState, useEffect, useMemo } from "react";
 import { allPlay, simulate, teamStrengths, winChance, valueOfAPoint } from "./odds.js";
+import { loadOddsData } from "./rosterTrades.js";
 
 function record(w, l, t) {
   return `${w}-${l}${t ? `-${t}` : ""}`;
@@ -40,8 +41,8 @@ function Odds() {
   useEffect(() => {
     async function load() {
       try {
-        const response = await fetch("/.netlify/functions/league-odds");
-        const json = await response.json();
+        // Scores, schedule, and credit for trades already made (rosterTrades.js)
+        const json = await loadOddsData();
         if (json.error) setError(json.error);
         else setData(json);
       } catch (err) {
@@ -78,6 +79,17 @@ function Odds() {
   const oppId = thisWeek ? (thisWeek.homeId === me.id ? thisWeek.awayId : thisWeek.homeId) : null;
   const opp = data.teams.find((t) => t.id === oppId);
   const weekChance = opp ? Math.round(winChance(strengths, spread, me.id, opp.id) * 100) : null;
+
+  // Trades whose credit hasn't faded out yet, biggest first.
+  const nameOf = (id) => data.teams.find((t) => t.id === id)?.name || "Team";
+  const counted = data.teams
+    .filter((t) => Math.abs(strengths[t.id]?.fromTrades || 0) >= 0.1)
+    .map((t) => ({
+      team: t,
+      now: Math.round(strengths[t.id].fromTrades * 10) / 10,
+      deals: (data.rosterTrades || []).filter((r) => r.teamId === t.id),
+    }))
+    .sort((a, b) => Math.abs(b.now) - Math.abs(a.now));
 
   const rows = [...data.teams].sort((a, b) => odds[b.id].title - odds[a.id].title || odds[b.id].playoffs - odds[a.id].playoffs);
   // Byes exist when the playoff field isn't 2, 4 or 8 teams (6 teams: top 2 rest).
@@ -175,12 +187,27 @@ function Odds() {
             </tbody>
           </table>
         </div>
+        {counted.length > 0 && (
+          <div className="odds-trades">
+            <div className="why-title">Trades counted before they show up in scores</div>
+            <ul className="why-lines">
+              {counted.map(({ team, now, deals }) => (
+                <li key={team.id}>
+                  <strong>{team.isMine ? "You" : nameOf(team.id)}</strong> {signed(now)}/wk:{" "}
+                  {deals
+                    .map((d) => `got ${d.got.join(" + ") || "nobody we track"} for ${d.gave.join(" + ") || "nobody we track"} (week ${d.week}, ${signed(d.gain)}/wk)`)
+                    .join("; ")}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <p className="game-log-key">
           All-play: your record if you played every team every week. Luck: real wins minus the wins your scores earned
           (green = the schedule helped, red = it hurt). A lucky team is weaker than its record. An unlucky team with a big
           all-play record is the one to fear in the playoffs. Odds come from playing the rest of the season and the playoffs
-          10,000 times, using each team's scores (recent weeks count more) and how much weekly scores bounce around in your
-          league (about {Math.round(spread)} points). Standings break ties with points for.
+          10,000 times, using each team's scores (recent weeks count more), credit for trades its scores don't show yet
+          (fading as it plays with the new guys), and how much weekly scores bounce around in your league (about {Math.round(spread)} points). Standings break ties with points for.
           {data.season.divisions > 1 && " Your league has divisions, which this doesn't account for yet."}
         </p>
       </section>

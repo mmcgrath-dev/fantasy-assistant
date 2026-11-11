@@ -13,6 +13,9 @@
 //    - Each team's strength is its average score, counting recent weeks more
 //      (each week back counts 15% less), and pulled a little toward the league
 //      average so one huge week doesn't fool it.
+//    - Trades already made get added on top (data.rosterTrades, from
+//      rosterTrades.js): a team's scores don't know about players it just
+//      traded for. That credit fades as it plays games with them.
 //    - Each simulated week, every team scores its strength plus random noise.
 //      The noise is how much real weekly scores in your league bounce around.
 //    - We also don't know any team's true strength for sure, so each run
@@ -169,9 +172,25 @@ export function teamStrengths(data) {
       weighted += w * s.points;
       weights += w;
     });
-    const mean = (weighted + SHRINK_GAMES * leagueMean) / (weights + SHRINK_GAMES);
+    const fromScores = (weighted + SHRINK_GAMES * leagueMean) / (weights + SHRINK_GAMES);
+
+    // Credit for trades already made. Games played since the trade are already
+    // in the scores, so only the part the scores haven't caught up on counts:
+    // a trade this week counts in full, one from 3 weeks ago about 60%.
+    let fromTrades = 0;
+    for (const r of data.rosterTrades || []) {
+      if (r.teamId !== t.id) continue;
+      let since = 0;
+      list.forEach((s, i) => {
+        if (s.week >= r.week) since += Math.pow(RECENT_DECAY, list.length - 1 - i);
+      });
+      fromTrades += r.gain * (1 - since / (weights + SHRINK_GAMES));
+    }
+
     strengths[t.id] = {
-      mean,
+      mean: fromScores + fromTrades,
+      fromScores,
+      fromTrades,
       // how unsure we are about his true average (fewer games = less sure)
       unsure: spread / Math.sqrt(weights + SHRINK_GAMES),
       lastThree: list.length ? list.slice(-3).reduce((a, s) => a + s.points, 0) / Math.min(3, list.length) : null,

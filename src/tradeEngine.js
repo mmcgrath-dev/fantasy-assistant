@@ -244,6 +244,18 @@ function lineupOver(players, slots, field, weeks, currentWeek, { backfieldPenalt
   return { total, injuries, starters: normal.starters, starterIds: normal.starterIds, backfield };
 }
 
+// One team's lineup value the rest of the way, by our numbers: the same
+// math behind the "+X/wk" on your trade cards (playoff weeks count extra,
+// two backs from one backfield count less). Used to give a team credit for a
+// trade it already made (src/rosterTrades.js).
+export function teamValue(players, slots, currentWeek) {
+  const usable = players.filter((p) => p.callInfo && ["RB", "WR", "TE"].includes(p.position));
+  return lineupOver(usable, slots, "value", weekRange(currentWeek, LAST_WEEK), currentWeek, {
+    backfieldPenalty: true,
+    playoffWeight: true,
+  }).total;
+}
+
 // Starters in slot order, for the before/after table on each trade card.
 const SLOT_ORDER = { RB: 0, WR: 1, TE: 2, FLEX: 3 };
 function lineupRows(lineup) {

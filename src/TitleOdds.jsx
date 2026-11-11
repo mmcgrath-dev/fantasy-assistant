@@ -1,7 +1,8 @@
 // TitleOdds.jsx
 // A small line for every trade card: "Title odds 18.2% → 21.4% (+3.2)".
 //
-// The league's scores and schedule (league-odds.js) are fetched once and kept,
+// The league's scores, schedule and trades already made (loadOddsData in
+// rosterTrades.js) are fetched once and kept,
 // so ten trade cards don't mean ten trips to ESPN. Each trade's odds come from
 // replaying the season with the trade in it (tradeOdds in odds.js): your lineup
 // gets your +/wk, and the other team gets theirs, since making a rival better
@@ -16,6 +17,7 @@
 
 import { useState, useEffect } from "react";
 import { simulate, tradeOdds } from "./odds.js";
+import { loadOddsData } from "./rosterTrades.js";
 
 let cached = null; // one shared fetch for the whole page
 const answers = new Map(); // trade -> its title odds, so nothing is worked out twice
@@ -33,8 +35,9 @@ function keyOf(trade) {
 
 function loadOdds() {
   if (!cached) {
-    cached = fetch("/.netlify/functions/league-odds")
-      .then((response) => response.json())
+    // Same data as the Odds page, trades already made included, so a card's
+    // "before" matches the title odds there.
+    cached = loadOddsData()
       .then((data) => {
         if (data.error) return null;
         const me = data.teams.find((t) => t.isMine);
