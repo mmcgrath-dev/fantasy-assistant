@@ -53,6 +53,7 @@ function mapSignals(row) {
     glTeamLast3: row.gl_team_last3,
     glMateName: row.gl_mate_name,
     glMateCount: row.gl_mate_count,
+    shortenedWeeks: row.shortened_weeks || [],
   };
 }
 

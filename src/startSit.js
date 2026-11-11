@@ -33,6 +33,10 @@
 // Each starter also gets a confidence call: how far he's ahead of the best guy
 // on your bench who could play that spot.
 //   Under 1 point = coin flip, 1 to 3 = lean, over 3 = clear.
+//
+// Coin flips are settled by this week's matchup: if you're favored (60%+ to
+// win), the safer player starts, since only a bad week loses it. If you're the
+// underdog (40% or less), the boom player starts, since you need a big week.
 
 import { buildWhy } from "./why.js";
 import { injurySummary, describeReport } from "./injury.js";
@@ -65,8 +69,10 @@ function avg(values) {
 
 // Our "per game" number for players without a tradeCall rating (QBs, rookies,
 // anyone under 4 games): half his last 3 games, half his season.
-function formFromLog(gameLog) {
-  if (!gameLog || gameLog.length === 0) return null;
+function formFromLog(allGames) {
+  // Games he got hurt in and left early don't count (supabase/23_shortened_games.sql).
+  const gameLog = (allGames || []).filter((g) => !g.shortened);
+  if (gameLog.length === 0) return null;
   const season = avg(gameLog.map((g) => g.points));
   const last3 = avg(gameLog.slice(0, 3).map((g) => g.points));
   if (season == null) return null;
@@ -225,24 +231,69 @@ function confidence(margin) {
   return { label: "Clear", tone: "good" };
 }
 
-// For a coin flip: the steadier guy if you're favored, the boom guy if you're not.
-function tiebreak(a, b) {
+// Favored by enough to play it safe, or behind by enough to need a big week.
+const FAVORED = 0.6;
+const UNDERDOG = 0.4;
+
+// matchup = { winChance, oppName } from StartSit.jsx, or null.
+//   "floor":   you're favored, so a bad week is what loses it. Take the safer guy.
+//   "ceiling": you're the underdog, so you need a big week. Take the boom guy.
+//   null:      close to a toss-up (or no matchup info): just take the higher score.
+function strategy(matchup) {
+  if (!matchup || matchup.winChance == null) return null;
+  if (matchup.winChance >= FAVORED) return "floor";
+  if (matchup.winChance <= UNDERDOG) return "ceiling";
+  return null;
+}
+
+// For a coin flip between a (starting) and b (the bench guy who could take his
+// spot). Returns { pick, text, why } or null when we don't have both guys'
+// floors and ceilings. why is "floor", "ceiling" or "both" when the pick came
+// from the matchup rule, null when it's just the higher score.
+function tiebreak(a, b, matchup) {
   if (a.sit.floor == null || b.sit.floor == null || a.sit.ceiling == null || b.sit.ceiling == null) return null;
   const steadier = a.sit.floor >= b.sit.floor ? a : b;
   const boomier = a.sit.ceiling >= b.sit.ceiling ? a : b;
+  const pct = matchup ? Math.round(matchup.winChance * 100) : null;
+
   if (steadier === boomier) {
-    return `${steadier.name} has both the higher floor (${steadier.sit.floor}) and ceiling (${steadier.sit.ceiling}). Go with him.`;
+    return {
+      pick: steadier,
+      why: "both",
+      text: `${steadier.name} has both the higher floor (${steadier.sit.floor}) and the higher ceiling (${steadier.sit.ceiling}). Go with him.`,
+    };
   }
-  return (
-    `If you're favored this week, take the safer floor: ${steadier.name} (bad week ${steadier.sit.floor}). ` +
-    `If you're the underdog, swing for ${boomier.name}'s ceiling (good week ${boomier.sit.ceiling}).`
-  );
+  const plan = strategy(matchup);
+  if (plan === "floor") {
+    const other = steadier === a ? b : a;
+    return {
+      pick: steadier,
+      why: "floor",
+      text: `You're favored (${pct}% to win vs ${matchup.oppName}), so a bad week is the only way to lose. ${steadier.name} has the safer floor (bad week ${steadier.sit.floor} vs ${other.sit.floor}).`,
+    };
+  }
+  if (plan === "ceiling") {
+    const other = boomier === a ? b : a;
+    return {
+      pick: boomier,
+      why: "ceiling",
+      text: `You're the underdog (${pct}% to win vs ${matchup.oppName}), so you need a big week. ${boomier.name} has the higher ceiling (good week ${boomier.sit.ceiling} vs ${other.sit.ceiling}).`,
+    };
+  }
+  const close = pct != null ? `This week is close to a toss-up (${pct}% to win), so` : "Without a clear favorite,";
+  return {
+    pick: a,
+    why: null,
+    text: `${close} just go with the higher score. For reference: ${steadier.name} is the safer floor (bad week ${steadier.sit.floor}), ${boomier.name} the bigger ceiling (good week ${boomier.sit.ceiling}).`,
+  };
 }
 
 // The whole page's answer.
 //   players: your roster, each already scored (p.sit = scorePlayer(...))
 //   slots:   { QB, RB, WR, TE, FLEX, "D/ST", K }
-export function buildLineup(players, slots) {
+//   matchup: { winChance, oppName } or null. When it's set, coin flips go to
+//            the safer player if you're favored, the boom player if you're not.
+export function buildLineup(players, slots, matchup = null) {
   const pool = players.filter((p) => p.sit.canStart).sort((a, b) => b.sit.score - a.sit.score);
   const used = new Set();
   const lineup = [];
@@ -255,7 +306,27 @@ export function buildLineup(players, slots) {
     }
   }
 
-  const bench = players.filter((p) => !used.has(p.espnId)).sort((a, b) => b.sit.score - a.sit.score);
+  const benchNow = () => players.filter((p) => !used.has(p.espnId)).sort((a, b) => b.sit.score - a.sit.score);
+  const bestAlt = (row) => benchNow().find((b) => b.sit.canStart && fits(row.slot, b.position)) || null;
+
+  // Coin flips: let the matchup decide, and swap the bench guy in when the
+  // rule picks him. One spot at a time, so a swap is seen by the spots after it.
+  for (const row of lineup) {
+    if (!row.player) continue;
+    const alt = bestAlt(row);
+    if (!alt || row.player.sit.score - alt.sit.score >= COIN_FLIP) continue;
+    const tb = tiebreak(row.player, alt, matchup);
+    if (!tb) continue;
+    row.tiebreak = tb.text;
+    if (tb.pick === alt) {
+      used.delete(row.player.espnId);
+      used.add(alt.espnId);
+      row.player = alt;
+      row.pickedFor = tb.why; // "floor" or "ceiling"
+    }
+  }
+
+  const bench = benchNow();
 
   // Confidence: each starter vs the best healthy bench player who could take his spot.
   for (const row of lineup) {
@@ -264,13 +335,18 @@ export function buildLineup(players, slots) {
     row.alt = alt || null;
     row.margin = alt ? round1(row.player.sit.score - alt.sit.score) : null;
     row.confidence = confidence(row.margin);
-    if (alt && row.margin < COIN_FLIP) row.tiebreak = tiebreak(row.player, alt);
   }
 
   // Why each bench guy sits: who beat him out.
   for (const b of bench) {
     if (!b.sit.canStart) {
       b.sitReason = b.sit.blocked;
+      continue;
+    }
+    const pickedOver = lineup.find((r) => r.pickedFor && r.alt === b);
+    if (pickedOver) {
+      const word = pickedOver.pickedFor === "floor" ? "safer floor" : "higher ceiling";
+      b.sitReason = `Coin flip with ${pickedOver.player.name}, who gets the nod for his ${word} this week.`;
       continue;
     }
     const rival = [...lineup].reverse().find((r) => r.player && fits(r.slot, b.position));

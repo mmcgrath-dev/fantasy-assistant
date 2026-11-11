@@ -279,6 +279,23 @@ async function getQbs(supabase, week) {
   return qbs;
 }
 
+// Games each player got hurt in and left early (get_shortened_games from
+// supabase/23_shortened_games.sql). Returns ESPN ID -> { week: { snapPct, usualPct } }.
+// Empty lookup if it fails, so the page still loads.
+async function getShortenedGames(supabase, espnIds) {
+  if (!supabase) return {};
+  const { data, error } = await supabase.rpc("get_shortened_games", { espn_ids: espnIds });
+  if (error) {
+    console.log("Shortened games failed:", error.message);
+    return {};
+  }
+  const out = {};
+  for (const row of data) {
+    (out[row.espn_id] ||= {})[row.week] = { snapPct: row.snap_pct, usualPct: row.usual_pct };
+  }
+  return out;
+}
+
 export default async () => {
   // 1. Read settings from .env
   const leagueId = process.env.ESPN_LEAGUE_ID;
@@ -380,16 +397,23 @@ export default async () => {
     //    which the page shows as a dash.
     const supabase = getSupabase();
     const espnIds = players.map((p) => p.espnId);
-    const [gameLogs, roleContext, injuryHistory, matchups, qbs, movers] = await Promise.all([
+    const [gameLogs, roleContext, injuryHistory, matchups, qbs, movers, shortened] = await Promise.all([
       getGameLogs(supabase, espnIds),
       getRoleContext(supabase, espnIds),
       getInjuryHistory(supabase, espnIds),
       getMatchupAreas(supabase, espnIds, week),
       getQbs(supabase, week),
       getMovers(getEspnSettings(), week, supabase),
+      getShortenedGames(supabase, espnIds),
     ]);
     for (const player of players) {
       player.gameLog = gameLogs[player.espnId] || [];
+      // Mark games he got hurt in and left early, so the page can leave them
+      // out of his averages and say why that week looks so low.
+      const short = shortened[player.espnId] || {};
+      for (const game of player.gameLog) {
+        if (short[game.week]) game.shortened = short[game.week];
+      }
       player.roleContext = roleContext[player.espnId] || null;
       player.injuries = injuryHistory[player.espnId] || [];
       player.matchup = matchups[player.espnId] || null;

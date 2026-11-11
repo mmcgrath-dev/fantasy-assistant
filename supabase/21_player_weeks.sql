@@ -133,10 +133,14 @@ as $$
     where p.espn_id = any(espn_ids)
   ),
   games as (
+    -- every full game: games he got hurt in and left early don't count
+    -- (23_shortened_games.sql), or one 2-point day would drag his floor down
     select w.gsis_id, ws.fantasy_points_ppr as pts
     from wanted w
     join weekly_stats ws on ws.gsis_id = w.gsis_id and ws.season = 2026
+    left join shortened_games sg on sg.gsis_id = ws.gsis_id and sg.game_id = ws.game_id
     where ws.fantasy_points_ppr is not null
+      and sg.gsis_id is null
   ),
   stats as (
     select

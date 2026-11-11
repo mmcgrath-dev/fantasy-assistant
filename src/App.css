@@ -1279,3 +1279,24 @@
   color: var(--danger);
   font-weight: 700;
 }
+
+/* Start/Sit: this week's matchup box, and the chip on a player picked for floor or ceiling */
+.ss-matchup {
+  margin-bottom: 16px;
+}
+
+.ss-conf-pick {
+  background: rgba(90, 140, 255, 0.16);
+  color: var(--accent);
+}
+
+/* Game log: a game he got hurt in and left early (not counted in averages) */
+.shortened-row td {
+  opacity: 0.55;
+}
+
+.short-mark {
+  margin-left: 2px;
+  color: var(--warning);
+  font-weight: 700;
+}

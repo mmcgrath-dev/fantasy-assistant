@@ -40,7 +40,14 @@
 -- The app turns these numbers into the actual sell / buy / hold call and the
 -- sentences (src/trades.js), the same way why.js does for the Why box.
 --
--- Players with fewer than 4 games aren't returned: not enough to compare.
+-- Shortened games (he got hurt and left early, see 23_shortened_games.sql)
+-- are left out of everything here except last_game_week, the same way missed
+-- games are: a 2-point day on 10 snaps says nothing about what he does when
+-- healthy. last_game_week still uses every game, so the app can tell how many
+-- games he's missed. shortened_weeks lists them so the app can say so.
+--
+-- Players need 4+ games played (shortened ones count toward that) and at least
+-- 3 full games, or there isn't enough to compare.
 --
 -- Try it after running this file:
 --   select * from get_trade_signals(
@@ -82,7 +89,8 @@ returns table (
   gl_share_prior   numeric,
   gl_team_last3    integer,   -- how many plays inside the 5 his team ran in those games
   gl_mate_name     text,      -- the teammate with the most touches inside the 5 lately
-  gl_mate_count    integer
+  gl_mate_count    integer,
+  shortened_weeks  integer[]  -- games he left early hurt, not counted above
 )
 language sql
 stable
@@ -158,7 +166,26 @@ as $$
     from weekly_stats w
     join roster ro on ro.gsis_id = w.gsis_id
     left join snap_counts sn on sn.gsis_id = w.gsis_id and sn.game_id = w.game_id
+    left join shortened_games sg on sg.gsis_id = w.gsis_id and sg.game_id = w.game_id
     where w.season = 2026
+      and sg.gsis_id is null   -- leave out games he got hurt in and left early
+  ),
+
+  his_last_game as (
+    -- the last game he actually played, shortened or not (for counting missed games)
+    select w.gsis_id, max(w.week) as week
+    from weekly_stats w
+    join roster ro on ro.gsis_id = w.gsis_id
+    where w.season = 2026
+    group by w.gsis_id
+  ),
+
+  his_shortened as (
+    select sg.gsis_id, array_agg(sg.week order by sg.week) as weeks
+    from shortened_games sg
+    join roster ro on ro.gsis_id = sg.gsis_id
+    where sg.season = 2026
+    group by sg.gsis_id
   ),
 
   his_red_zone as materialized (
@@ -321,7 +348,7 @@ as $$
     coalesce(t.tds, 0)::integer,
     round(coalesce(t.expected_tds, 0), 1),
     round(coalesce(t.tds, 0) - coalesce(t.expected_tds, 0), 1),
-    s.last_game_week,
+    coalesce(lg.week, s.last_game_week),
     round(s.last_game_ppr, 1),
     round(s.avg_before_last, 1),
     round(ce.ypc_last3, 1),
@@ -335,7 +362,8 @@ as $$
     round(gs.prior, 0),
     gs.team_last3::integer,
     gm.mate_name,
-    gm.mate_count::integer
+    gm.mate_count::integer,
+    hs.weeks
   from roster ro
   join summary s on s.gsis_id = ro.gsis_id
   left join his_tds t     on t.gsis_id  = ro.gsis_id
@@ -345,7 +373,13 @@ as $$
   left join league_ypt ly on ly.position = ro.position
   left join gl_share gs   on gs.gsis_id = ro.gsis_id
   left join gl_mates gm   on gm.gsis_id = ro.gsis_id
-  where s.games >= 4;
+  left join his_last_game lg on lg.gsis_id = ro.gsis_id
+  left join his_shortened hs on hs.gsis_id = ro.gsis_id
+  -- 4+ games played (a shortened one still counts toward that), and at least
+  -- 3 full games to build his numbers from. Otherwise a rookie who got hurt in
+  -- Week 1 would vanish from the Trades page.
+  where s.games + coalesce(array_length(hs.weeks, 1), 0) >= 4
+    and s.games >= 3;
 $$;
 
 -- Same lockdown as the other functions: only the app's secret keys can call it.

@@ -16,6 +16,7 @@ import { tradeCall } from "./tradeCalls.js";
 import { offenseInfo } from "./offense.js";
 import { scorePlayer, buildLineup, lineupMoves, weekTiming } from "./startSit.js";
 import { healthOf, latestWeekPlayed } from "./health.js";
+import { teamStrengths, normalCdf } from "./odds.js";
 
 // Puts one player's info from both functions together and scores him.
 function mergePlayers(roster, trades) {
@@ -60,7 +61,30 @@ function lineupSlots(players, slots) {
   };
 }
 
-function Details({ player, alt, margin, tiebreak, sitReason }) {
+// This week's opponent and your chance to beat him.
+//   Your side: your best lineup's total (our scores).
+//   Their side: ESPN's projections for the starters they have set right now.
+//   How sure: how much weekly scores bounce around in your league (odds.js),
+//   for both teams, so a 10-point edge is about 60-65%, not a lock.
+function weekMatchup(league, trades, myTotal) {
+  if (!league) return null;
+  const me = league.teams.find((t) => t.isMine);
+  if (!me) return null;
+  const game = league.games.find(
+    (g) => g.week === league.currentWeek && g.winner === "UNDECIDED" && (g.homeId === me.id || g.awayId === me.id)
+  );
+  if (!game) return null;
+  const oppId = game.homeId === me.id ? game.awayId : game.homeId;
+  const opp = trades.teams.find((t) => t.id === oppId);
+  if (!opp) return null;
+  const starters = opp.players.filter((p) => p.slot !== "Bench" && p.slot !== "IR");
+  const oppProj = Math.round(starters.reduce((sum, p) => sum + (p.espnProjection || 0), 0) * 10) / 10;
+  const { spread } = teamStrengths(league);
+  const winChance = normalCdf((myTotal - oppProj) / (spread * Math.SQRT2));
+  return { oppName: opp.name, oppProj, winChance };
+}
+
+function Details({ player, alt, margin, tiebreak, sitReason, pickedFor }) {
   const s = player.sit;
   return (
     <div className="ss-details">
@@ -80,7 +104,13 @@ function Details({ player, alt, margin, tiebreak, sitReason }) {
             Bad week {s.floor}, good week {s.ceiling} this season.
           </li>
         )}
-        {alt && (
+        {alt && pickedFor && (
+          <li>
+            Picked over {alt.name} ({alt.sit.score}) for his {pickedFor === "floor" ? "safer floor" : "higher ceiling"}, even
+            though {alt.name.split(" ")[0]} scores a hair higher.
+          </li>
+        )}
+        {alt && !pickedFor && (
           <li>
             Next man up on your bench: {alt.name} ({alt.sit.score}), {margin} behind.
           </li>
@@ -124,7 +154,12 @@ function PlayerRow({ slot, player, row, bench }) {
           {moved && <span className={`ss-moved ${bench ? "ss-moved-out" : "ss-moved-in"}`}>{bench ? "Sit" : "Start"}</span>}
         </span>
         <span className="ss-right">
-          {row?.confidence && (
+          {row?.pickedFor && (
+            <span className="ss-conf ss-conf-pick" title={row.tiebreak || ""}>
+              {row.pickedFor === "floor" ? "Safer pick" : "Upside pick"}
+            </span>
+          )}
+          {row?.confidence && !row.pickedFor && (
             <span className={`ss-conf ss-conf-${row.confidence.tone}`} title={row.alt ? `${row.margin} ahead of ${row.alt.name}` : "Nobody healthy on your bench can play this spot"}>
               {row.confidence.label}
             </span>
@@ -140,6 +175,7 @@ function PlayerRow({ slot, player, row, bench }) {
           alt={row?.alt}
           margin={row?.margin}
           tiebreak={row?.tiebreak}
+          pickedFor={row?.pickedFor}
           sitReason={bench && s.canStart ? player.sitReason : null}
         />
       )}
@@ -155,14 +191,18 @@ function StartSit() {
     async function load() {
       try {
         // Both at once. Promise.all waits for both to finish.
-        const [rosterRes, tradesRes] = await Promise.all([
+        const [rosterRes, tradesRes, leagueRes] = await Promise.all([
           fetch("/.netlify/functions/roster"),
           fetch("/.netlify/functions/trades"),
+          fetch("/.netlify/functions/league-odds"),
         ]);
         const roster = await rosterRes.json();
         const trades = await tradesRes.json();
+        // The league schedule is only for this week's matchup. If it fails,
+        // the page still works, coin flips just go to the higher score.
+        const league = await leagueRes.json().catch(() => null);
         if (roster.error || trades.error) setError(roster.error || trades.error);
-        else setData({ roster, trades });
+        else setData({ roster, trades, league: league && !league.error ? league : null });
       } catch (err) {
         setError(err.message);
       }
@@ -173,9 +213,15 @@ function StartSit() {
   if (error) return <p className="message">Something went wrong: {error}</p>;
   if (!data) return <p className="message">Working out your best lineup...</p>;
 
-  const { roster, trades } = data;
+  const { roster, trades, league } = data;
   const players = mergePlayers(roster, trades);
-  const best = buildLineup(players, lineupSlots(players, trades.slots));
+  const slots = lineupSlots(players, trades.slots);
+  // First the plain best lineup, to see where you stand against this week's
+  // opponent. Then again with that matchup, so coin flips go to the safer
+  // player when you're favored and the boom player when you're not.
+  const plain = buildLineup(players, slots);
+  const matchup = weekMatchup(league, trades, plain.total);
+  const best = matchup ? buildLineup(players, slots, matchup) : plain;
   const { moves, currentTotal } = lineupMoves(players, best);
   const timing = weekTiming();
   const coinFlips = best.lineup.filter((r) => r.confidence?.label === "Coin flip");
@@ -197,6 +243,23 @@ function StartSit() {
       </header>
 
       <p className="trade-note">{timing.note}</p>
+
+      {matchup && (
+        <section className={`why ss-matchup ${matchup.winChance >= 0.6 ? "verdict-good" : matchup.winChance <= 0.4 ? "verdict-bad" : "verdict-neutral"}`}>
+          <div className="why-title">This week vs {matchup.oppName}</div>
+          <p className="why-verdict">
+            {Math.round(matchup.winChance * 100)}% to win: your best lineup {plain.total} vs their {matchup.oppProj}
+          </p>
+          <p className="trade-note">
+            {matchup.winChance >= 0.6
+              ? "You're favored, so only a bad week loses this. Coin flips go to the player with the safer floor."
+              : matchup.winChance <= 0.4
+                ? "You're the underdog, so you need a big week. Coin flips go to the player with the higher ceiling."
+                : "Close to a toss-up, so coin flips just go to the higher score."}{" "}
+            Their number is ESPN's projection for the lineup they have set right now.
+          </p>
+        </section>
+      )}
 
       <section className="why ss-moves">
         <div className="why-title">Changes to make on ESPN</div>

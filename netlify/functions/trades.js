@@ -68,6 +68,8 @@ async function getTradeSignals(espnIds) {
       glTeamLast3: row.gl_team_last3,
       glMateName: row.gl_mate_name,
       glMateCount: row.gl_mate_count,
+      // games he got hurt in and left early, left out of the numbers above
+      shortenedWeeks: row.shortened_weeks || [],
     };
   }
   return signals;

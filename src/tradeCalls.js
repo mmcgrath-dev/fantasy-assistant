@@ -366,6 +366,14 @@ export function tradeCall(s, position, espn = {}, offense = null) {
 
   // A QB change doesn't push the call either way, but it's worth knowing:
   // most of his numbers came with a different QB.
+  // Games he got hurt in and left early aren't in any of these numbers
+  // (23_shortened_games.sql). Say so, so the averages make sense.
+  const shortened = s.shortenedWeeks || [];
+  if (shortened.length > 0) {
+    const weeks = shortened.length === 1 ? `Week ${shortened[0]}` : `Weeks ${shortened.join(" and ")}`;
+    reasons.push(`Left ${weeks} early with an injury, so ${shortened.length === 1 ? "that game isn't" : "those games aren't"} counted in his numbers.`);
+  }
+
   // Missed his last game, Doubtful, or no ESPN projection: worth saying up front.
   if (!absent && espn.health && (espn.health.level === "risky" || espn.health.level === "watch")) {
     reasons.unshift(`${espn.health.level === "risky" ? "Injury warning" : "Health"}: ${espn.health.line}`);

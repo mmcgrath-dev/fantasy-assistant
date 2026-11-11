@@ -343,6 +343,9 @@ function Matchup({ matchup, pos }) {
 // the Matchup box, then one line per game this season, plus his season average at the bottom.
 function GameLog({ games, context, injury, matchup, qb, moves, health }) {
   const pos = games[0].position;
+  // Games he got hurt in and left early: shown, but left out of the average row.
+  const fullGames = games.filter((g) => !g.shortened);
+  const shortGames = games.filter((g) => g.shortened);
   const middleColumns = POSITION_COLUMNS[pos] || POSITION_COLUMNS.WR;
 
   return (
@@ -366,8 +369,19 @@ function GameLog({ games, context, injury, matchup, qb, moves, health }) {
           </thead>
           <tbody>
             {games.map((game) => (
-              <tr key={game.week}>
-                <td>{game.week}</td>
+              <tr
+                key={game.week}
+                className={game.shortened ? "shortened-row" : ""}
+                title={
+                  game.shortened
+                    ? `Left early hurt: ${game.shortened.snapPct}% of snaps (usually ${game.shortened.usualPct}%). Not counted in his average.`
+                    : ""
+                }
+              >
+                <td>
+                  {game.week}
+                  {game.shortened && <span className="short-mark">*</span>}
+                </td>
                 <td
                   className={defenseColor(game.softnessRank)}
                   title={game.softnessRank ? `${game.softnessRank} of 32 for points allowed to ${pos}s (1 = easiest)` : ""}
@@ -396,16 +410,22 @@ function GameLog({ games, context, injury, matchup, qb, moves, health }) {
               <td colSpan={2}>Avg</td>
               {middleColumns.map((col) => (
                 <td key={col.label} className="num">
-                  {col.avg === false ? "" : show(average(games, col.value))}
+                  {col.avg === false ? "" : show(average(fullGames, col.value))}
                 </td>
               ))}
-              <td className="num">{show(average(games, (g) => g.points))}</td>
+              <td className="num">{show(average(fullGames, (g) => g.points))}</td>
               <td className="num"></td>
-              <td className="num">{plusMinus(average(games, (g) => g.vsDef))}</td>
+              <td className="num">{plusMinus(average(fullGames, (g) => g.vsDef))}</td>
             </tr>
           </tbody>
         </table>
       </div>
+      {shortGames.length > 0 && (
+        <p className="game-log-key">
+          * Left {shortGames.length === 1 ? `Week ${shortGames[0].week}` : `Weeks ${shortGames.map((g) => g.week).join(" and ")}`} early
+          with an injury, so {shortGames.length === 1 ? "it's" : "they're"} not in the Avg row (or anywhere else in the app's numbers).
+        </p>
+      )}
       <p className="game-log-key">
         Green is a top 10 {pos} week, red is 31st or worse. Opp color is how easy that defense is for {pos}s.
         vs Def is his points minus what that defense usually allows to {pos}s. Hover a cell for more.
