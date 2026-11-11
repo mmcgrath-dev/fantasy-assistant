@@ -3,16 +3,30 @@ import { useState, useEffect, Fragment } from "react";
 import "./App.css";
 import { buildWhy } from "./why.js";
 import { injurySummary } from "./injury.js";
+import { addHealth } from "./health.js";
 import Trades from "./Trades.jsx";
+import TradeFinder from "./TradeFinder.jsx";
+import TradeBuilder from "./TradeBuilder.jsx";
+import StartSit from "./StartSit.jsx";
+import Odds from "./Odds.jsx";
 
 // The small label on each roster row, like "Role ▼" in red.
 // It comes from the same rules as the Why box (buildWhy in why.js), so the row
 // and the panel always agree. Hovering shows the full takeaway.
 // "--" means there's nothing to compare yet (kicker, D/ST, or under 4 team games).
-function RowTag({ context, injury }) {
+function RowTag({ context, injury, qb, moves, health }) {
+  // Missing games beats every other tag: it's usually the real reason behind
+  // anything else that looks off (health.js).
+  if (health && health.missed >= 1) {
+    return (
+      <span className={`tag tag-${health.missed >= 2 ? "bad" : "warn"}`} title={health.line || ""}>
+        Missed {health.missed}
+      </span>
+    );
+  }
   if (!context) return <span className="tag-none">--</span>;
 
-  const { verdict, tag } = buildWhy(context, injury);
+  const { verdict, tag } = buildWhy(context, injury, qb, moves);
   if (!tag) return <span className="tag-none">Steady</span>;
 
   return (
@@ -151,14 +165,21 @@ POSITION_COLUMNS.TE = POSITION_COLUMNS.WR;
 
 // The "Why" box at the top of the panel: a one-line takeaway plus the evidence.
 // The rules that write these sentences live in why.js.
-function Why({ context, injury }) {
-  const { verdict, lines } = buildWhy(context, injury);
+function Why({ context, injury, qb, moves, health }) {
+  const { verdict, lines } = buildWhy(context, injury, qb, moves);
   if (lines.length === 0) return null;
+  const missing = health && health.missed >= 1;
 
   return (
     <div className="why">
       <div className="why-title">Why · last 2 games vs the 2 before</div>
-      {verdict && <p className="why-verdict">{verdict}</p>}
+      {missing && (
+        <p className="why-verdict">
+          He's missed {health.missed === 1 ? "his team's last game" : `his team's last ${health.missed} games`}, so the
+          drops below are mostly from him not playing, not a lost role.
+        </p>
+      )}
+      {!missing && verdict && <p className="why-verdict">{verdict}</p>}
       <ul className="why-lines">
         {lines.map((line) => (
           <li key={line}>{line}</li>
@@ -170,16 +191,19 @@ function Why({ context, injury }) {
 
 // The Injury box: this week's report, his history this season, and how he
 // played in games while hurt. Only shows if he's been on a report this season.
-function Injury({ injury }) {
-  if (!injury) return null;
+function Injury({ injury, health }) {
+  const missing = health && health.missed >= 1;
+  if (!injury && !missing) return null;
 
   return (
     <div className="why injury">
       <div className="why-title">Injury report</div>
       <ul className="why-lines">
-        <li>{injury.statusLine}</li>
-        <li>{injury.historyLine}</li>
-        {injury.compareLine && <li>{injury.compareLine}</li>}
+        {/* Missed games first: it's the part that changes his numbers (health.js). */}
+        {missing && <li>{health.line}</li>}
+        {injury && <li>{injury.statusLine}</li>}
+        {injury && <li>{injury.historyLine}</li>}
+        {injury && injury.compareLine && <li>{injury.compareLine}</li>}
       </ul>
     </div>
   );
@@ -317,14 +341,14 @@ function Matchup({ matchup, pos }) {
 
 // The panel that opens under a player's row: the Why box, the Injury box,
 // the Matchup box, then one line per game this season, plus his season average at the bottom.
-function GameLog({ games, context, injury, matchup }) {
+function GameLog({ games, context, injury, matchup, qb, moves, health }) {
   const pos = games[0].position;
   const middleColumns = POSITION_COLUMNS[pos] || POSITION_COLUMNS.WR;
 
   return (
     <div className="game-log">
-      <Why context={context} injury={injury} />
-      <Injury injury={injury} />
+      <Why context={context} injury={injury} qb={qb} moves={moves} health={health} />
+      <Injury injury={injury} health={health} />
       <Matchup matchup={matchup} pos={pos} />
       <div className="game-log-scroll">
         <table className="game-log-table">
@@ -412,6 +436,10 @@ function MyTeam() {
         if (data.error) {
           setError(data.error);
         } else {
+          // Missed games and injury status for every player (health.js)
+          const byeWeeks = {};
+          for (const p of data.players) byeWeeks[p.nflTeam] = p.byeWeek;
+          addHealth(data.players, byeWeeks, data.week);
           setRoster(data); // This triggers a redraw with the real data
         }
       } catch (err) {
@@ -502,7 +530,7 @@ function MyTeam() {
                     </td>
                     {/* Short trend label (see RowTag at the top of this file). */}
                     <td className="num trend-cell">
-                      <RowTag context={player.roleContext} injury={injury} />
+                      <RowTag context={player.roleContext} injury={injury} qb={player.qb} moves={player.moves} health={player.health} />
                     </td>
                     {/* The ? : is a short if/else. If they're on bye, show "--", otherwise their points. */}
                     <td className="num">{player.status === "BYE" ? "--" : player.projected}</td>
@@ -517,6 +545,9 @@ function MyTeam() {
                           context={player.roleContext}
                           injury={injury}
                           matchup={player.matchup}
+                          qb={player.qb}
+                          moves={player.moves}
+                          health={player.health}
                         />
                       </td>
                     </tr>
@@ -532,8 +563,8 @@ function MyTeam() {
 }
 
 // The whole app: tabs at the top, then whichever page is picked.
-// Only the picked page is on screen, so the Trades page only asks ESPN for the
-// whole league when you open it.
+// Only the picked page is on screen, so the Trades and Start/Sit pages only
+// ask ESPN for the whole league when you open them.
 function App() {
   const [page, setPage] = useState("team");
 
@@ -543,11 +574,28 @@ function App() {
         <button className={page === "team" ? "tab active" : "tab"} onClick={() => setPage("team")}>
           My Team
         </button>
+        <button className={page === "startsit" ? "tab active" : "tab"} onClick={() => setPage("startsit")}>
+          Start/Sit
+        </button>
         <button className={page === "trades" ? "tab active" : "tab"} onClick={() => setPage("trades")}>
           Trades
         </button>
+        <button className={page === "finder" ? "tab active" : "tab"} onClick={() => setPage("finder")}>
+          Trade Finder
+        </button>
+        <button className={page === "builder" ? "tab active" : "tab"} onClick={() => setPage("builder")}>
+          Build a Trade
+        </button>
+        <button className={page === "odds" ? "tab active" : "tab"} onClick={() => setPage("odds")}>
+          Odds
+        </button>
       </nav>
-      {page === "team" ? <MyTeam /> : <Trades />}
+      {page === "team" && <MyTeam />}
+      {page === "startsit" && <StartSit />}
+      {page === "trades" && <Trades />}
+      {page === "finder" && <TradeFinder />}
+      {page === "builder" && <TradeBuilder />}
+      {page === "odds" && <Odds />}
     </main>
   );
 }

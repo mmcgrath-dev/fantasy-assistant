@@ -56,6 +56,8 @@ function round1(n) {
   return Math.round(n * 10) / 10;
 }
 
+import { cantTradeFor } from "./health.js";
+
 // ---------- what other managers think he's worth ----------
 //
 // Real managers don't only look at recent points. They look at the ESPN app's
@@ -175,14 +177,22 @@ export function tradeCall(s, position, espn = {}, offense = null) {
   const mate = s.mateName && s.mateShareLast3 != null
     ? ` ${s.mateName} has ${s.mateShareLast3}% lately${s.mateSharePrior != null ? ` (was ${s.mateSharePrior}%)` : ""}.`
     : "";
+  let jobAtRisk = false; // a back who's been out while someone else had the job
   if (isRB && s.playedLast3 != null && s.playedLast3 <= 1) {
     absent = true;
+    jobAtRisk = Boolean(s.mateName);
     const since = s.lastWeekPlayed != null ? `since Week ${s.lastWeekPlayed}` : "lately";
     sell.push({
       weight: 0,
       kind: "absent",
       text: `Hasn't really played ${since} (${s.playedLast3} of his team's last 3 games).${mate} His old numbers don't tell us what his job will be when he's back.`,
     });
+  } else if (espn.health && (espn.health.level === "missing" || (espn.health.level === "out" && espn.health.missed >= 2))) {
+    // Every position: he's missed 2+ of his team's games in a row (health.js).
+    // This used to only work for running backs, so a receiver who hadn't
+    // played in weeks still looked like his old healthy self.
+    absent = true;
+    sell.push({ weight: 0, kind: "absent", text: espn.health.line });
   } else if (isRB && s.shareLast3 != null && s.sharePrior != null && s.games - 3 >= MIN_PRIOR_GAMES) {
     if (s.sharePrior - s.shareLast3 >= SHARE_SWING) {
       shareDrop = true;
@@ -356,7 +366,31 @@ export function tradeCall(s, position, espn = {}, offense = null) {
 
   // A QB change doesn't push the call either way, but it's worth knowing:
   // most of his numbers came with a different QB.
-  if (offense?.qbNew) {
+  // Missed his last game, Doubtful, or no ESPN projection: worth saying up front.
+  if (!absent && espn.health && (espn.health.level === "risky" || espn.health.level === "watch")) {
+    reasons.unshift(`${espn.health.level === "risky" ? "Injury warning" : "Health"}: ${espn.health.line}`);
+  }
+
+  // Same idea when HE just changed teams, or a new teammate just arrived at
+  // his spot: his numbers came before the move.
+  const moves = espn.moves || {};
+  const newMates = moves.newTeammates || [];
+  if (moves.joined) {
+    reasons.push(
+      `Heads up: just traded to ${moves.joined.to} from ${moves.joined.from}. Every number here came with his old team, so ESPN's projection counts extra in his value.`
+    );
+  } else if (newMates.length > 0) {
+    const who = newMates.map((m) => `${m.name} (${m.position}, from ${m.from})`).join(" and ");
+    const what = position === "RB" ? "carries" : "targets";
+    reasons.push(
+      `Heads up: ${who} just joined ${espn.nflTeam}. Expect fewer ${what} to go around, and his numbers all came before that. ESPN's projection already knows, so it counts extra in his value.`
+    );
+  }
+  if (offense?.qbThisWeek) {
+    reasons.push(
+      `Heads up: new QB this week. ${offense.qbNow} takes over for ${offense.qbPrevious}, so every number here came with someone else. ESPN's projection already knows about the switch, so it counts extra in his value.`
+    );
+  } else if (offense?.qbNew) {
     reasons.push(
       `Heads up: ${offense.qbNow} has only started the last ${offense.qbNowGames === 1 ? "game" : `${offense.qbNowGames} games`}. Most of these numbers came with ${offense.qbSeason}.`
     );
@@ -372,11 +406,18 @@ export function tradeCall(s, position, espn = {}, offense = null) {
   // Losing the backfield = the recent games are the better guide.
   let value = shareDrop ? 0.75 * recent + 0.25 * before : 0.5 * recent + 0.5 * before;
   // ESPN's projection as a second opinion, so one weird 3-game stretch can't
-  // swing his value too far on its own.
-  if (espn.espnProjection != null) value = 0.8 * value + 0.2 * espn.espnProjection;
+  // swing his value too far on its own. After a QB change his own numbers
+  // came with someone else, while ESPN's projection already knows about the
+  // switch, so ESPN counts for more: half this week, a third for his first 3 games.
+  // A trade (his, or a new teammate at his spot) counts the same as a new QB.
+  const freshChange = offense?.qbThisWeek || moves.joined || newMates.length > 0;
+  const espnWeight = freshChange ? 0.5 : offense?.qbNew ? 0.35 : 0.2;
+  if (espn.espnProjection != null) value = (1 - espnWeight) * value + espnWeight * espn.espnProjection;
   const luckPerGame = (s.tdLuck * 6) / s.games;
   if (!(luckPerGame < 0 && glLost)) value -= luckRemoved * luckPerGame;
   if (inefficient && isRB) value -= 1;
+  // Someone else ran his backfield while he was out: he may not get it all back.
+  if (jobAtRisk) value *= 0.85;
 
   // Boom-or-bust costs a contender: his bad weeks lose you games the steady
   // guy's don't. Half a point off, and a line either way so you know his range.
@@ -397,6 +438,18 @@ export function tradeCall(s, position, espn = {}, offense = null) {
   if (rangeLine) reasons.push(rangeLine);
   const marketValue = marketValueOf(0.5 * s.pprPerGame + 0.5 * recent, espn);
 
+  // "Sell high" only means something when his price sits above his real
+  // value: that gap is the profit you cash in. When the two are about even
+  // (a hot scorer whose offense makes the scoring real), there's nothing to
+  // cash in, and selling him just downgrades your lineup. That's a hold.
+  if (label === "Sell high" && marketValue - value < 1.5) {
+    call = "hold";
+    label = "Hold";
+    reasons.unshift(
+      `Scoring hot, but his price (about ${round1(marketValue)} a week to other managers) is right in line with what he's really producing, so there's no premium to cash in. Hold him.`
+    );
+  }
+
   const worthIt = (s.pprPerGame ?? 0) >= MIN_PPR || (s.touchesLast3 ?? 0) >= MIN_TOUCHES;
 
   return {
@@ -406,7 +459,8 @@ export function tradeCall(s, position, espn = {}, offense = null) {
     reasons,
     worthIt,
     guarded: earlyPickNote != null, // early-rounder we're holding: don't ship him cheap
-    absent, // missed most of his team's recent games: left out of trade ideas
+    absent, // missed most of his team's recent games: shows as "Out", injury priced into trades
+    possiblyHurt: cantTradeFor(espn.health), // hurt enough that trades price it in (health.js)
     warnings, // role warning signs (losing the backfield, fewer touches...), even on a hold
     value: round1(Math.max(value, 0)),
     marketValue: round1(marketValue),

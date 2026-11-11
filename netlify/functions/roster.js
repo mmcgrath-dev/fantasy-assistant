@@ -1,8 +1,12 @@
 // This function gets your roster from ESPN for the current week,
 // cleans it up, adds up your starters' projected points,
-// and looks up each player's game log, role context, injury history and matchup in your Supabase database.
+// and looks up each player's game log, role context, injury history and matchup in your Supabase database,
+// plus who's starting at QB for his team this week.
 
 import { createClient } from "@supabase/supabase-js";
+import { getEspnSettings } from "../lib/espn.js";
+import { getProjectedStarters, applyStarter } from "../lib/qb.js";
+import { getMovers, movesFor } from "../lib/movers.js";
 
 // ESPN uses numbers instead of names for positions, NFL teams, and lineup spots.
 // These "lookup tables" translate the numbers into words.
@@ -237,6 +241,44 @@ async function getMatchupAreas(supabase, espnIds, week) {
   return matchups;
 }
 
+// Who's at QB for each NFL team: the database's answer (from play-by-play,
+// get_offense_context) with ESPN's starter for this week laid on top, so a QB
+// traded or named the starter this week shows up right away (netlify/lib/qb.js).
+// Returns a lookup of ESPN team code -> { now, previous, season, thisWeek, starts }.
+const NFLVERSE_TO_ESPN = { WAS: "WSH", LA: "LAR" };
+
+async function getQbs(supabase, week) {
+  const settings = getEspnSettings();
+  const [offense, starters] = await Promise.all([
+    supabase ? supabase.rpc("get_offense_context") : Promise.resolve({ data: [] }),
+    settings ? getProjectedStarters(settings, week) : Promise.resolve({}),
+  ]);
+  if (offense.error) console.log("Offense context failed:", offense.error.message);
+
+  const qbs = {};
+  for (const row of offense.data || []) {
+    const team = NFLVERSE_TO_ESPN[row.team] || row.team;
+    const r = applyStarter(
+      {
+        games: row.games,
+        qbNow: row.qb_now,
+        qbSeason: row.qb_season,
+        qbChanged: row.qb_changed,
+        qbNowGames: row.qb_now_games,
+      },
+      starters[team]
+    );
+    qbs[team] = {
+      now: r.qbNow,
+      previous: r.qbChangedThisWeek ? r.qbPrevious : r.qbChanged ? r.qbSeason : null,
+      thisWeek: r.qbChangedThisWeek,
+      starts: r.qbNowGames,
+      changed: r.qbChanged,
+    };
+  }
+  return qbs;
+}
+
 export default async () => {
   // 1. Read settings from .env
   const leagueId = process.env.ESPN_LEAGUE_ID;
@@ -319,6 +361,8 @@ export default async () => {
         name: player.fullName,
         position: POSITIONS[player.defaultPositionId] || "?",
         nflTeam: NFL_TEAMS[player.proTeamId] || "?",
+        // His team's bye week, so the page can tell a bye from a missed game.
+        byeWeek: byeWeeks[player.proTeamId] ?? null,
         slot: slot,
         starter: slot !== "Bench" && slot !== "IR",
         status: gameStatus,
@@ -336,17 +380,23 @@ export default async () => {
     //    which the page shows as a dash.
     const supabase = getSupabase();
     const espnIds = players.map((p) => p.espnId);
-    const [gameLogs, roleContext, injuryHistory, matchups] = await Promise.all([
+    const [gameLogs, roleContext, injuryHistory, matchups, qbs, movers] = await Promise.all([
       getGameLogs(supabase, espnIds),
       getRoleContext(supabase, espnIds),
       getInjuryHistory(supabase, espnIds),
       getMatchupAreas(supabase, espnIds, week),
+      getQbs(supabase, week),
+      getMovers(getEspnSettings(), week, supabase),
     ]);
     for (const player of players) {
       player.gameLog = gameLogs[player.espnId] || [];
       player.roleContext = roleContext[player.espnId] || null;
       player.injuries = injuryHistory[player.espnId] || [];
       player.matchup = matchups[player.espnId] || null;
+      // His team's QB situation (QBs themselves don't need it)
+      player.qb = player.position !== "QB" ? qbs[player.nflTeam] || null : null;
+      // Just changed teams, or a new teammate at his spot (netlify/lib/movers.js)
+      player.moves = movesFor(player, movers);
     }
 
     // 8. Sort players into lineup order.

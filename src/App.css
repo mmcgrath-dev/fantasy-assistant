@@ -46,7 +46,7 @@
 .total-number {
   font-size: 2rem;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--good);
 }
 
 /* ---------- Roster table ---------- */
@@ -113,7 +113,7 @@
 }
 
 .status-Q {
-  background: #3d3416;
+  background: rgba(217, 166, 46, 0.14);
   color: var(--warning);
 }
 
@@ -121,7 +121,7 @@
 .status-O,
 .status-IR,
 .status-SSPD {
-  background: #3d1c1c;
+  background: rgba(232, 97, 90, 0.14);
   color: var(--danger);
 }
 
@@ -145,17 +145,17 @@
 }
 
 .tag-good {
-  background: rgba(63, 185, 80, 0.18);
-  color: var(--accent);
+  background: rgba(62, 207, 142, 0.16);
+  color: var(--good);
 }
 
 .tag-warn {
-  background: #3d3416;
+  background: rgba(217, 166, 46, 0.14);
   color: var(--warning);
 }
 
 .tag-bad {
-  background: #3d1c1c;
+  background: rgba(232, 97, 90, 0.14);
   color: var(--danger);
 }
 
@@ -172,7 +172,7 @@
 
 .roster tr.clickable:hover td,
 .roster tr.open td {
-  background: #1d2630;
+  background: var(--surface-2);
 }
 
 .chevron {
@@ -242,11 +242,11 @@
 /* Cell tints, Sleeper style. Strong and light green for good, light and strong red for bad.
    rgba is a color with see-through-ness: the last number is how strong it is (0 to 1). */
 .good-2 {
-  background: rgba(63, 185, 80, 0.35);
+  background: rgba(62, 207, 142, 0.32);
 }
 
 .good-1 {
-  background: rgba(63, 185, 80, 0.15);
+  background: rgba(62, 207, 142, 0.14);
 }
 
 .neutral {
@@ -254,11 +254,11 @@
 }
 
 .bad-1 {
-  background: rgba(248, 81, 73, 0.15);
+  background: rgba(232, 97, 90, 0.15);
 }
 
 .bad-2 {
-  background: rgba(248, 81, 73, 0.35);
+  background: rgba(232, 97, 90, 0.32);
 }
 
 /* ---------- Why box (top of the panel) ---------- */
@@ -306,7 +306,7 @@
 /* Colored edge like the Injury box: green for a good matchup, red for a tough one,
    gray for about average. */
 .matchup-good {
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid var(--good);
 }
 
 .matchup-bad {
@@ -439,12 +439,12 @@
 
 .call-sell {
   color: var(--danger);
-  background: rgba(248, 81, 73, 0.15);
+  background: rgba(232, 97, 90, 0.15);
 }
 
 .call-buy {
-  color: var(--accent);
-  background: rgba(63, 185, 80, 0.15);
+  color: var(--good);
+  background: rgba(62, 207, 142, 0.14);
 }
 
 .call-hold {
@@ -484,7 +484,7 @@
 .trade-gain {
   font-size: 0.85rem;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--good);
 }
 
 .trade-sides {
@@ -519,7 +519,7 @@
 }
 
 .offense-up {
-  color: var(--accent);
+  color: var(--good);
 }
 
 .offense-down {
@@ -531,6 +531,15 @@
   padding: 10px 12px;
   border-radius: 6px;
   background: var(--bg);
+}
+
+/* A player row opens and closes on a click anywhere in it (the shop box
+   inside is the exception: it has its own Close button). */
+.trade-player {
+  cursor: pointer;
+}
+
+.shop-results {
   cursor: default;
 }
 
@@ -565,7 +574,7 @@
 }
 
 .lineup-in {
-  color: var(--accent);
+  color: var(--good);
   font-weight: 700;
 }
 
@@ -597,7 +606,7 @@
 }
 
 .sched-soft {
-  color: var(--accent);
+  color: var(--good);
   font-weight: 700;
 }
 
@@ -625,7 +634,8 @@
 }
 
 .shop-button:hover {
-  background: #1d2630;
+  background: var(--surface-2);
+  border-color: var(--accent);
 }
 
 .shop-results {
@@ -673,4 +683,599 @@
 
 .shop-close-bottom {
   margin-top: 6px;
+}
+
+/* ---------- Collapsible sections and row buttons (cleanup pass) ---------- */
+
+/* Rows and section headers are real buttons now, so the keyboard and screen
+   readers work. The button is styled to look like the row it replaced. */
+.row-toggle {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row-toggle:hover .trade-name {
+  color: var(--accent);
+}
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+
+.section-toggle:hover {
+  color: var(--text);
+}
+
+.section-count {
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.75rem;
+}
+
+.help-toggle {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+  white-space: nowrap;
+}
+
+/* ---------- Phone pass ---------- */
+
+@media (max-width: 640px) {
+  .app {
+    padding: 20px 12px;
+  }
+
+  /* The schedule strip swipes sideways instead of wrapping into a block. */
+  .sched-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .lineup-compare {
+    font-size: 0.78rem;
+  }
+
+  .trade-player {
+    padding: 12px 0;
+  }
+
+  .shop-button,
+  .shop-close {
+    padding: 10px 14px;
+  }
+}
+
+/* ---------- Trade Finder tab ---------- */
+
+/* The search box, with the dropdown of matches hanging under it */
+.finder-box {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.finder-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.finder-input::placeholder {
+  color: var(--muted);
+}
+
+.finder-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.finder-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.finder-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.finder-item:hover {
+  background: var(--surface-2);
+}
+
+.finder-empty {
+  padding: 8px 10px;
+}
+
+/* The one-line verdict: Buy low / Stay away / Fairly priced */
+.finder-verdict {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+/* ---------- Start/Sit page ---------- */
+
+/* "Changes to make on ESPN" box: blue edge so it's the first thing you see. */
+.ss-moves {
+  border-left: 3px solid var(--accent);
+  margin-bottom: 16px;
+}
+
+.ss-row {
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.ss-row-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* QB, RB, FLEX... in a fixed-width column so names line up */
+.ss-slot {
+  flex: 0 0 44px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.ss-player {
+  flex: 1;
+  min-width: 0;
+}
+
+.ss-player .status {
+  margin-left: 6px;
+}
+
+.ss-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.ss-score {
+  min-width: 36px;
+  text-align: right;
+  font-weight: 700;
+}
+
+.ss-bench .ss-player,
+.ss-bench .ss-score {
+  opacity: 0.75;
+}
+
+/* Lines under a closed row (why he sits, injury warning) */
+.ss-sub {
+  margin: 2px 0 0 54px;
+}
+
+.ss-warn-line {
+  color: var(--warning);
+}
+
+/* Confidence chip: Clear / Lean / Coin flip */
+.ss-conf {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.ss-conf-good {
+  background: rgba(60, 180, 100, 0.18);
+  color: var(--good);
+}
+
+.ss-conf-lean {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.ss-conf-warn {
+  background: rgba(224, 160, 48, 0.18);
+  color: var(--warning);
+}
+
+.ss-conf-none {
+  color: var(--muted);
+}
+
+/* "Start" / "Sit" badge on anyone who moves vs your ESPN lineup */
+.ss-moved {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.ss-moved-in {
+  background: rgba(60, 180, 100, 0.18);
+  color: var(--good);
+}
+
+.ss-moved-out {
+  background: rgba(220, 70, 70, 0.18);
+  color: var(--danger);
+}
+
+.ss-details {
+  margin: 6px 0 2px 54px;
+}
+
+.ss-warnings li {
+  color: var(--warning);
+}
+
+.ss-tiebreak {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 0.85rem;
+}
+
+/* Total row under the best lineup */
+.ss-total {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0 2px;
+  border-top: 2px solid var(--border);
+}
+
+.ss-total .ss-slot {
+  color: var(--text);
+}
+
+.ss-total .ss-score {
+  font-size: 1.15rem;
+  color: var(--good);
+}
+
+/* ---------- Odds page ---------- */
+
+/* Your row in the luck meter table */
+.odds-table tr.odds-mine td {
+  background: var(--surface-2);
+  font-weight: 700;
+}
+
+/* Title odds line on trade cards */
+.title-odds {
+  margin: 6px 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.title-odds-good {
+  color: var(--good);
+}
+
+.title-odds-bad {
+  color: var(--danger);
+}
+
+.title-odds-neutral {
+  color: var(--muted);
+}
+
+/* ---------- Suggested trades carousel ---------- */
+
+.carousel-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.carousel-count {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* Big round arrow buttons, easy to hit with a thumb */
+.carousel-arrow {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.carousel-arrow:hover {
+  background: var(--surface-2);
+  border-color: var(--accent);
+}
+
+/* The card slides in a little each time you switch */
+.carousel-slide {
+  animation: carousel-in 0.12s ease-out;
+  outline: none;
+  /* tells phones sideways swipes belong to us, up and down still scrolls the page */
+  touch-action: pan-y;
+}
+
+@keyframes carousel-in {
+  from {
+    opacity: 0.4;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.carousel-dots {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.carousel-dot {
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--border);
+  cursor: pointer;
+}
+
+.carousel-dot.active {
+  background: var(--accent);
+}
+
+/* "Title +2.1%" on one-line deal rows */
+.compact-right {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.title-chip {
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* "Hurt · back ~W14" on trade cards, for players whose injury is priced in */
+.hurt-tag {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(232, 97, 90, 0.14);
+  color: var(--danger);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ---------- Build a Trade ---------- */
+
+.builder-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* Stack the two sides on a phone */
+@media (max-width: 620px) {
+  .builder-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.builder-side {
+  margin: 0;
+}
+
+.builder-select {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.builder-picked {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.builder-picked li {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+
+.builder-picked li:first-child {
+  border-top: none;
+}
+
+.builder-remove {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.builder-remove:hover {
+  color: var(--danger);
+}
+
+.builder-hint {
+  margin: 0 0 16px;
+}
+
+/* "Would they say yes?" box, edged green / yellow / red */
+.builder-verdict {
+  margin-bottom: 12px;
+}
+
+.verdict-good {
+  border-left: 3px solid var(--good);
+}
+
+.verdict-neutral {
+  border-left: 3px solid var(--warning);
+}
+
+.verdict-bad {
+  border-left: 3px solid var(--danger);
+}
+
+.builder-verdict-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.builder-verdict-head .shop-button {
+  margin-top: 0;
+}
+
+.builder-checks {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9rem;
+}
+
+.builder-checks li {
+  padding: 3px 0;
+}
+
+.check-ok > span {
+  color: var(--good);
+  font-weight: 700;
+}
+
+.check-miss > span {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.builder-foryou {
+  margin: 10px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.builder-foryou.check-ok strong {
+  color: var(--good);
+}
+
+.builder-foryou.check-miss strong {
+  color: var(--danger);
+}
+
+.compare-deal {
+  white-space: normal;
+}
+
+.verdict-text-good {
+  color: var(--good);
+  font-weight: 700;
+}
+
+.verdict-text-neutral {
+  color: var(--warning);
+  font-weight: 700;
+}
+
+.verdict-text-bad {
+  color: var(--danger);
+  font-weight: 700;
 }

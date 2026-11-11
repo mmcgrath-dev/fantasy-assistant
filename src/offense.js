@@ -50,6 +50,8 @@ export function offenseInfo(team, row) {
   const strong = recent >= league + RECENT_GAP && ahead >= league + AHEAD_GAP;
   const weak = recent <= league - RECENT_GAP && ahead <= league - AHEAD_GAP;
   const qbNew = row.qbChanged && row.qbNowGames <= QB_NEW_GAMES;
+  // A QB starting his first game here this week (traded, or just named the starter).
+  const qbThisWeek = Boolean(row.qbChangedThisWeek);
 
   // The box
   const lines = [];
@@ -66,11 +68,13 @@ export function offenseInfo(team, row) {
     lines.push(`${row.rzPlaysLast3} plays inside the 20 a game lately${before}.`);
   }
   if (row.qbNow) {
-    lines.push(
-      row.qbChanged
-        ? `QB: ${row.qbNow}, who took over from ${row.qbSeason} (${row.qbNowGames} ${row.qbNowGames === 1 ? "start" : "starts"}).`
-        : `QB: ${row.qbNow}.`
-    );
+    if (qbThisWeek) {
+      lines.push(`QB: ${row.qbNow} starts this week, taking over from ${row.qbPrevious}. Everything above came before he got there.`);
+    } else if (row.qbChanged) {
+      lines.push(`QB: ${row.qbNow}, who took over from ${row.qbSeason} (${row.qbNowGames} ${row.qbNowGames === 1 ? "start" : "starts"}).`);
+    } else {
+      lines.push(`QB: ${row.qbNow}.`);
+    }
   }
   if (hasVegas) {
     const span = row.vegasGames === 1 ? "next game" : `a game over the next ${row.vegasGames}`;
@@ -83,7 +87,11 @@ export function offenseInfo(team, row) {
   let takeaway = "About an average offense right now.";
   if (strong) takeaway = "One of the better offenses right now, so everyone on it gets more chances to score.";
   if (weak) takeaway = "A struggling offense, so it's hard for anyone on it to score a lot.";
-  if (qbNew) takeaway += ` New QB, so numbers from before ${row.qbNow} took over may not hold.`;
+  if (qbThisWeek) {
+    takeaway += ` New QB this week (${row.qbNow} in for ${row.qbPrevious}), so this offense's numbers so far may not hold.`;
+  } else if (qbNew) {
+    takeaway += ` New QB, so numbers from before ${row.qbNow} took over may not hold.`;
+  }
 
   return {
     team,
@@ -98,6 +106,8 @@ export function offenseInfo(team, row) {
     qbNow: row.qbNow,
     qbSeason: row.qbSeason,
     qbNowGames: row.qbNowGames,
+    qbThisWeek,
+    qbPrevious: row.qbPrevious || null,
     lines,
     takeaway,
   };

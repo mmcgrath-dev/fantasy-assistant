@@ -40,9 +40,11 @@ export function getEspnSettings() {
 }
 
 // Asks ESPN for a full address, sending your cookies so it knows it's you.
-export async function getFromEspn(settings, url) {
+// extraHeaders is optional, for the few requests that need more (like the
+// player list's filter).
+export async function getFromEspn(settings, url, extraHeaders = {}) {
   const response = await fetch(url, {
-    headers: { Cookie: `espn_s2=${settings.espnS2}; SWID=${settings.swid}` },
+    headers: { Cookie: `espn_s2=${settings.espnS2}; SWID=${settings.swid}`, ...extraHeaders },
   });
   if (!response.ok) {
     throw new Error(`ESPN turned down the request (status ${response.status})`);

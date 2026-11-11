@@ -9,7 +9,10 @@
 //   4. every player's remaining schedule with matchup softness (get_player_weeks)
 //      and his floor/ceiling (get_consistency), both in supabase/21_player_weeks.sql
 //   5. how every NFL offense is playing (get_offense_context in
-//      supabase/19_offense_context.sql), keyed by ESPN's team abbreviation
+//      supabase/19_offense_context.sql), keyed by ESPN's team abbreviation,
+//      with this week's starting QB from ESPN laid on top (netlify/lib/qb.js)
+//   6. who just changed NFL teams, and whose new teammates that affects
+//      (netlify/lib/movers.js)
 // The page (src/Trades.jsx) turns those numbers into sell / buy / hold calls.
 //
 // Try it while netlify dev is running:
@@ -17,6 +20,8 @@
 
 import { POSITIONS, NFL_TEAMS, LINEUP_SLOTS, getEspnSettings, getFromEspn } from "../lib/espn.js";
 import { getSupabase } from "../lib/supabase.js";
+import { getProjectedStarters, applyStarter } from "../lib/qb.js";
+import { getMovers, movesFor } from "../lib/movers.js";
 
 // Asks the database for every player's trade signals in one call.
 // Returns a lookup of ESPN ID -> signals. Empty lookup if it fails, so the
@@ -272,20 +277,42 @@ export default async () => {
     //    with fewer than 4 games).
     const allIds = teams.flatMap((team) => team.players.map((p) => p.espnId));
     //    Offense context is asked for at the same time, since neither needs the other.
-    const [signals, offenses, shares, playerWeeks, consistency] = await Promise.all([
+    const [signals, offenses, shares, playerWeeks, consistency, starters, movers] = await Promise.all([
       getTradeSignals(allIds),
       getOffenses(),
       getBackfieldShares(allIds),
       getPlayerWeeks(allIds),
       getConsistency(allIds),
+      getProjectedStarters(settings, week),
+      getMovers(settings, week, getSupabase()),
     ]);
+    //    The database only knows who played QB in each team's last game. ESPN
+    //    knows who starts THIS week (a QB traded yesterday, say), so its
+    //    answer goes on top. See netlify/lib/qb.js.
+    for (const team of Object.keys(offenses)) {
+      offenses[team] = applyStarter(offenses[team], starters[team]);
+    }
     for (const team of teams) {
       for (const player of team.players) {
         const s = signals[player.espnId];
         player.signals = s ? { ...s, ...(shares[player.espnId] || {}) } : null;
         player.weeks = playerWeeks[player.espnId] || null;
         player.consistency = consistency[player.espnId] || null;
+        // Just changed teams, or a new teammate at his spot (netlify/lib/movers.js)
+        player.moves = movesFor(player, movers);
       }
+    }
+
+    // A player who just changed teams may still have his OLD team's schedule
+    // (the database's team list can lag a few days). Borrow the schedule of
+    // someone at his position on his new team, since they play the same games.
+    const allPlayers = teams.flatMap((team) => team.players);
+    for (const player of allPlayers) {
+      if (!player.moves.joined) continue;
+      const mate = allPlayers.find(
+        (p) => p !== player && p.nflTeam === player.nflTeam && p.position === player.position && p.weeks && !p.moves.joined
+      );
+      if (mate) player.weeks = mate.weeks;
     }
 
     // 5. Your team first, then everyone else by record (best first).

@@ -1,20 +1,27 @@
 /* index.css: styles shared by the whole site. */
 
 /* CSS variables. Define a color once here, then use it anywhere with var(--name).
-   If you want to change the look later, you only change it in this one spot. */
+   If you want to change the look later, you only change it in this one spot.
+
+   The palette: deep navy-slate surfaces, blue for things you click, and green
+   and red saved for what they mean (good and bad). Keeping "clickable" and
+   "good" as different colors is what makes the page read as clean. */
 :root {
-  --bg: #0f1419;
-  --surface: #171e26;
-  --border: #26303b;
-  --text: #e6e9ed;
-  --muted: #8b96a3;
-  --accent: #3fb950;
-  --warning: #e3b341;
-  --danger: #f85149;
+  --bg: #0c1017;
+  --surface: #141a24;
+  --surface-2: #1b2330;   /* hover state for rows and buttons */
+  --border: #242e3c;
+  --text: #e7ebf1;
+  --muted: #929eae;
+  --accent: #5e9eff;      /* interactive: tabs, buttons, focus rings */
+  --good: #3ecf8e;        /* positive: buys, gains, soft matchups */
+  --warning: #d9a62e;
+  --danger: #e8615a;
 
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--text);
   background: var(--bg);
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Makes widths include padding and borders, which makes layouts way more predictable. */
@@ -25,4 +32,25 @@
 body {
   margin: 0;
   min-height: 100vh;
+}
+
+/* Text that's only there for screen readers (says in words what a color or
+   arrow means). Visually hidden, still read aloud. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* One consistent, visible focus ring for keyboard users, on anything clickable. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }

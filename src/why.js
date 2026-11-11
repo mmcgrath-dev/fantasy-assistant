@@ -6,8 +6,10 @@
 // These are simple rules, not AI. Each rule checks one thing and, if it's
 // big enough to matter, adds a line. Small wiggles get ignored.
 //
-// buildWhy(ctx, injury) takes his role context and his injury summary
-// (from injurySummary in injury.js, or null) and returns { verdict, lines, tag }:
+// buildWhy(ctx, injury, qb) takes his role context, his injury summary
+// (from injurySummary in injury.js, or null) and his team's QB situation
+// (from roster.js, or null), and any trade that touches him (moves, from
+// roster.js, or null) and returns { verdict, lines, tag }:
 //   verdict: one short takeaway (or null if nothing stands out)
 //   lines:   the evidence, one sentence each
 //   tag:     a tiny label for the main roster row, like { label: "Role ▼", tone: "bad" }
@@ -84,13 +86,40 @@ function teammateLine(mate, pos) {
   return `${mate.name} is getting more work (${extras.join(", ")}).`;
 }
 
+// One line when his team's QB just changed: the trends above came with someone else.
+//   qb = { now, previous, thisWeek, starts, changed } from roster.js, or null
+function qbLine(qb) {
+  if (!qb || !qb.changed || !qb.previous) return null;
+  if (qb.thisWeek) {
+    return `New QB this week: ${qb.now} takes over for ${qb.previous}. These trends all came with ${qb.previous}, so they may not hold.`;
+  }
+  if (qb.starts <= 3) {
+    return `${qb.now} has only started ${qb.starts === 1 ? "1 game" : `${qb.starts} games`} in place of ${qb.previous}, so some of these trends came with ${qb.previous}.`;
+  }
+  return null;
+}
+
+// One line when he just changed teams, or someone just joined his team at his
+// spot. moves = { joined, newTeammates } from roster.js (netlify/lib/movers.js).
+function moveLine(moves, pos) {
+  if (!moves) return null;
+  if (moves.joined) {
+    return `Just traded to ${moves.joined.to} from ${moves.joined.from}. Every trend here came with his old team.`;
+  }
+  const mates = moves.newTeammates || [];
+  if (mates.length === 0) return null;
+  const who = mates.map((m) => `${m.name} (${m.position}, from ${m.from})`).join(" and ");
+  const what = pos === "RB" ? "carries" : "targets";
+  return `New teammate: ${who} just joined. Expect fewer ${what} to go around, and these numbers all came before he got there.`;
+}
+
 // One line if an injury was affecting him during his last 2 games.
 function injuryLine(injury) {
   if (!injury || !injury.recent) return null;
   return `Banged up in Week ${injury.recent.week}: ${describeReport(injury.recent)}.`;
 }
 
-export function buildWhy(ctx, injurySummary) {
+export function buildWhy(ctx, injurySummary, qb = null, moves = null) {
   if (!ctx) return { verdict: null, lines: [], tag: null };
 
   const pos = ctx.position;
@@ -120,6 +149,11 @@ export function buildWhy(ctx, injurySummary) {
 
   const injury = injuryLine(injurySummary);
   if (injury) lines.push(injury);
+
+  const newQb = qbLine(qb);
+  if (newQb) lines.unshift(newQb); // first, since it changes how to read everything else
+  const moved = moveLine(moves, pos);
+  if (moved) lines.unshift(moved); // same reason
 
   // ---------- The takeaway and the row tag ----------
   // usageDiff is how far his usage moved, measured in "notable changes"
@@ -164,6 +198,22 @@ export function buildWhy(ctx, injurySummary) {
   } else if (mate) {
     verdict = "Watch the QB situation.";
     tag = { label: "QB watch", tone: "warn" };
+  }
+
+  // A trade that touches him is worth a flag on the row, even if nothing else is.
+  if (!tag && moves && moves.joined) {
+    tag = { label: "New team", tone: "warn" };
+    if (!verdict) verdict = "Just changed teams. His numbers so far came in a different offense, so lean on this week's projection.";
+  }
+  if (!tag && moves && (moves.newTeammates || []).length > 0) {
+    tag = { label: "New teammate", tone: "warn" };
+    if (!verdict) verdict = "Someone just joined his team at his spot. His share could shrink, so lean on this week's projection until we see them play together.";
+  }
+
+  // A brand new QB this week is worth a flag on the row, even if nothing else is.
+  if (!tag && qb && qb.thisWeek && qb.previous) {
+    tag = { label: "New QB", tone: "warn" };
+    if (!verdict) verdict = "New QB this week. His numbers so far came with someone else, so lean on this week's projection.";
   }
 
   // A game status on THIS week's report matters even if his usage looks fine.

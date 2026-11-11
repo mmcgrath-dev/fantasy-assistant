@@ -9,10 +9,12 @@
 // How each NFL offense is playing comes from get_offense_context, turned into
 // a small ▲ / ▼ tag and a click-to-open box by offense.js.
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { tradeCall } from "./tradeCalls.js";
 import { findTrades, dropCandidates, weekPoints } from "./tradeEngine.js";
 import { offenseInfo } from "./offense.js";
+import { addHealth, healthTag, expectedBack, marketDiscount } from "./health.js";
+import TitleOdds, { warmTitleOdds } from "./TitleOdds.jsx";
 
 // ---------- offense tag and box ----------
 
@@ -22,7 +24,8 @@ function TeamTag({ player }) {
   if (!o || !o.tone) return <>{player.nflTeam}</>;
   return (
     <span className={`offense-tag offense-${o.tone}`} title={o.takeaway}>
-      {player.nflTeam} {o.tone === "up" ? "▲" : "▼"}
+      {player.nflTeam} <span aria-hidden="true">{o.tone === "up" ? "▲" : "▼"}</span>
+      <span className="sr-only">{o.tone === "up" ? "(offense rolling)" : "(offense struggling)"}</span>
     </span>
   );
 }
@@ -32,13 +35,16 @@ function TeamTag({ player }) {
 // by the matchup). Playoff weeks are marked.
 function ScheduleBox({ player, currentWeek }) {
   if (!player.weeks) return null;
+  // A player without a rating (under 4 games, QB...) still has a schedule;
+  // there's just no projection to put under each opponent.
+  const rated = Boolean(player.callInfo);
   const weeks = [];
   for (let w = currentWeek; w <= 17; w++) {
     const g = player.weeks[w];
     weeks.push({
       week: w,
       opp: g ? `${g.isHome ? "" : "@"}${g.opp}` : "BYE",
-      pts: g ? Math.round(weekPoints(player, "value", w, currentWeek) * 10) / 10 : null,
+      pts: g && rated ? Math.round(weekPoints(player, "value", w, currentWeek) * 10) / 10 : null,
       soft: g && g.defAllowed != null && g.leagueAllowed > 0 ? g.defAllowed / g.leagueAllowed : null,
       playoffs: w >= 15,
     });
@@ -99,6 +105,31 @@ function labelClass(label) {
 // Sort order for your roster: the calls you should act on first.
 const LABEL_ORDER = { "Sell high": 0, "Sell low": 1, "Hold · due": 2, Hold: 3, Out: 4 };
 
+// A collapsible section with a count in the header and its explainer tucked
+// behind a "How this works" toggle, so the page isn't one giant scroll.
+function Section({ title, count, help, children }) {
+  const [open, setOpen] = useState(true);
+  const [showHelp, setShowHelp] = useState(false);
+  return (
+    <section className="why trade-section">
+      <div className="section-head">
+        <button className="section-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <span className="chevron" aria-hidden="true">{open ? "▾" : "▸"}</span>
+          {title}
+          {count != null && <span className="section-count">{count}</span>}
+        </button>
+        {help && open && (
+          <button className="help-toggle" aria-expanded={showHelp} onClick={() => setShowHelp(!showHelp)}>
+            {showHelp ? "Hide" : "How this works"}
+          </button>
+        )}
+      </div>
+      {open && showHelp && <p className="trade-note">{help}</p>}
+      {open && children}
+    </section>
+  );
+}
+
 // ---------- 1. Your roster ----------
 
 function RosterRow({ player, currentWeek, shopPlayer }) {
@@ -109,27 +140,38 @@ function RosterRow({ player, currentWeek, shopPlayer }) {
 
   function onShop(e) {
     e.stopPropagation(); // don't close the row
-    setShop(shopPlayer(player));
+    const deals = shopPlayer(player);
+    warmTitleOdds(deals); // have their title odds ready by the time you open one
+    setShop(deals);
   }
 
   return (
-    <li className="trade-player clickable-row" onClick={() => setOpen(!open)}>
-      <div className="trade-player-top">
-        <div>
-          <span className="chevron">{open ? "▾" : "▸"}</span>
-          <span className="trade-name">{player.name}</span>
-          <span className="muted">
-            {" "}
-            {player.position} · <TeamTag player={player} />
-          </span>
+    <li className={open ? "trade-player row-open" : "trade-player"} onClick={() => setOpen(!open)}>
+      <button
+        className="row-toggle"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(!open);
+        }}
+      >
+        <div className="trade-player-top">
+          <div>
+            <span className="chevron" aria-hidden="true">{open ? "▾" : "▸"}</span>
+            <span className="trade-name">{player.name}</span>
+            <span className="muted">
+              {" "}
+              {player.position} · <TeamTag player={player} />
+            </span>
+          </div>
+          <div className="trade-player-right">
+            <span className="muted" title="Our estimate of his points per game the rest of the way">
+              {c.value}/wk
+            </span>
+            <span className={`call ${labelClass(label)}`}>{label}</span>
+          </div>
         </div>
-        <div className="trade-player-right">
-          <span className="muted" title="Our estimate of his points per game the rest of the way">
-            {c.value}/wk
-          </span>
-          <span className={`call ${labelClass(label)}`}>{label}</span>
-        </div>
-      </div>
+      </button>
       {/* First reason always shows; click for the rest and the offense box. */}
       {c.reasons.length > 0 && (
         <ul className="why-lines">
@@ -186,25 +228,48 @@ function RosterRow({ player, currentWeek, shopPlayer }) {
 
 // ---------- buy-low rows (other teams' players) ----------
 
-function BuyRow({ player, currentWeek }) {
+// badge: what the right side shows. "Buy" for buy-lows; the injury tag and
+// discount for the "Buy them hurt" list.
+function BuyRow({ player, currentWeek, findFor, badge = null }) {
   const [open, setOpen] = useState(false);
+  const [shop, setShop] = useState(null); // null = not asked, [] = no deals, [...] = deals
   const p = player;
+
+  function onFind(e) {
+    e.stopPropagation(); // don't close the row
+    const deals = findFor(p);
+    warmTitleOdds(deals);
+    setShop(deals);
+  }
   return (
-    <li className="trade-player clickable-row" onClick={() => setOpen(!open)}>
-      <div className="trade-player-top">
-        <div>
-          <span className="chevron">{open ? "▾" : "▸"}</span>
-          <span className="trade-name">{p.name}</span>
-          <span className="muted">
-            {" "}
-            {p.position} · <TeamTag player={p} /> · {p.owner}
-          </span>
+    <li className={open ? "trade-player row-open" : "trade-player"} onClick={() => setOpen(!open)}>
+      <button
+        className="row-toggle"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(!open);
+        }}
+      >
+        <div className="trade-player-top">
+          <div>
+            <span className="chevron" aria-hidden="true">{open ? "▾" : "▸"}</span>
+            <span className="trade-name">{p.name}</span>
+            <span className="muted">
+              {" "}
+              {p.position} · <TeamTag player={p} /> · {p.owner}
+            </span>
+          </div>
+          <div className="trade-player-right">
+            <span className="muted">{p.callInfo.value}/wk</span>
+            {badge ? (
+              <span className="hurt-tag">{badge}</span>
+            ) : (
+              <span className="call call-buy">Buy</span>
+            )}
+          </div>
         </div>
-        <div className="trade-player-right">
-          <span className="muted">{p.callInfo.value}/wk</span>
-          <span className="call call-buy">Buy</span>
-        </div>
-      </div>
+      </button>
       <ul className="why-lines">
         {p.callInfo.reasons.map((reason) => (
           <li key={reason}>{reason}</li>
@@ -212,22 +277,66 @@ function BuyRow({ player, currentWeek }) {
       </ul>
       {open && <ScheduleBox player={p} currentWeek={currentWeek} />}
       {open && <OffenseBox offense={p.offense} />}
+      {open && findFor && shop == null && (
+        <button className="shop-button" onClick={onFind}>
+          How to get {p.name.split(" ")[0]}
+        </button>
+      )}
+      {open && shop != null && (
+        <div className="shop-results" onClick={(e) => e.stopPropagation()}>
+          <div className="shop-head">
+            <div className="why-title">Getting {p.name}</div>
+            <button className="shop-close" onClick={() => setShop(null)}>
+              ✕ Close
+            </button>
+          </div>
+          {shop.length === 0 ? (
+            <p className="muted small">
+              No deal found that {p.owner} would take without you giving up more than he's worth. Watch him
+              another week: one more quiet game and his price drops.
+            </p>
+          ) : (
+            <>
+              <p className="muted small">
+                Every deal brings him in. Click one for the lineup change and the reasons. Bar's lower here than
+                the main list: these include close-to-even deals.
+              </p>
+              <ul className="trade-list">
+                {shop.map((t) => (
+                  <CompactTrade
+                    key={`${t.team.id}-${t.give.map((q) => q.espnId).join()}-${t.get.map((q) => q.espnId).join()}`}
+                    trade={t}
+                  />
+                ))}
+              </ul>
+              <button className="shop-close shop-close-bottom" onClick={() => setShop(null)}>
+                ✕ Close trades
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </li>
   );
 }
 
 // ---------- 2. Suggested trades ----------
 
-function PlayerChips({ players }) {
-  return players.map((p) => (
-    <div key={p.espnId} className="trade-chip">
-      <span className="trade-name">{p.name}</span>
-      <span className="muted">
-        {" "}
-        {p.position} · {p.callInfo.value}/wk
-      </span>
-    </div>
-  ));
+function PlayerChips({ players, currentWeek }) {
+  return players.map((p) => {
+    // "Hurt · back ~W14" so an injured player stands out on the card (health.js)
+    const tag = healthTag(p.health, currentWeek);
+    return (
+      <div key={p.espnId} className="trade-chip">
+        <span className="trade-name">{p.name}</span>
+        <span className="muted">
+          {" "}
+          {p.position} · {p.callInfo.value}/wk
+        </span>
+        {tag && <span className="hurt-tag" title={p.health.line}>{tag}</span>}
+      </div>
+    );
+  });
 }
 
 function WhyList({ title, lines }) {
@@ -294,20 +403,25 @@ function CompactTrade({ trade }) {
   const t = trade;
   return (
     <li className="trade-card">
-      <div className="compact-trade clickable-row" onClick={() => setOpen(!open)}>
+      <button className="row-toggle compact-trade" aria-expanded={open} onClick={() => setOpen(!open)}>
         <div>
-          <span className="chevron">{open ? "▾" : "▸"}</span>
+          <span className="chevron" aria-hidden="true">{open ? "▾" : "▸"}</span>
           <span className="trade-name">{t.give.map((p) => p.name).join(" + ")}</span>
           <span className="trade-arrow-small"> ⇄ </span>
           <span className="trade-name">{t.get.map((p) => p.name).join(" + ")}</span>
+          {t.get.some((p) => healthTag(p.health, t.week)) && <span className="hurt-tag">hurt</span>}
           <span className="muted small"> with {t.team.name}</span>
         </div>
-        <span className="trade-gain">
-          You +{t.myGain} · Them +{t.theirGain}
+        <span className="compact-right">
+          <span className="trade-gain">
+            You {plus(t.myGain)} · Them {plus(t.theirGain)}
+          </span>
+          <TitleOdds trade={t} compact />
         </span>
-      </div>
+      </button>
       {open && (
         <div onClick={(e) => e.stopPropagation()}>
+          <TitleOdds trade={t} />
           <LineupTable before={t.lineupBefore} after={t.lineupAfter} />
           <div className="trade-why">
             <WhyList title={`Why give ${t.give.length > 1 ? "them" : "him"} up`} lines={t.whyGive} />
@@ -325,6 +439,12 @@ function CompactTrade({ trade }) {
   );
 }
 
+// "+2.5" or "-0.8". Suggested trades are always positive, but a trade you
+// build yourself in the Trade Builder can go either way.
+function plus(n) {
+  return `${n > 0 ? "+" : ""}${n}`;
+}
+
 function TradeCard({ trade }) {
   const t = trade;
   return (
@@ -338,19 +458,20 @@ function TradeCard({ trade }) {
           </span>
         </span>
         <span className="trade-gain">
-          You +{t.myGain}/wk · Them +{t.theirGain}/wk
+          You {plus(t.myGain)}/wk · Them {plus(t.theirGain)}/wk
         </span>
       </div>
+      <TitleOdds trade={t} />
 
       <div className="trade-sides">
         <div>
           <div className="why-title">You give</div>
-          <PlayerChips players={t.give} />
+          <PlayerChips players={t.give} currentWeek={t.week} />
         </div>
         <div className="trade-arrow">⇄</div>
         <div>
           <div className="why-title">You get</div>
-          <PlayerChips players={t.get} />
+          <PlayerChips players={t.get} currentWeek={t.week} />
         </div>
       </div>
 
@@ -367,6 +488,95 @@ function TradeCard({ trade }) {
         ))}
       </div>
     </li>
+  );
+}
+
+// ---------- swipe through trades ----------
+
+// Shows one trade at a time, like swiping through posts. Swipe left or right
+// on a phone, click the arrows, or use the arrow keys after clicking the card.
+// The dots under it show how many there are and jump straight to one.
+const SWIPE_DISTANCE = 50; // a finger has to move this many pixels sideways to count
+
+function TradeCarousel({ trades }) {
+  const [index, setIndex] = useState(0);
+  // Where the finger started. useRef keeps it between events without redrawing.
+  const touchStart = useRef(null);
+
+  // If the list gets shorter (say after a refresh), don't point past the end.
+  const current = Math.min(index, trades.length - 1);
+  const goTo = (i) => setIndex((i + trades.length) % trades.length); // wraps around at both ends
+
+  function onTouchStart(e) {
+    touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }
+
+  function onTouchEnd(e) {
+    if (!touchStart.current) return;
+    const dx = e.changedTouches[0].clientX - touchStart.current.x;
+    const dy = e.changedTouches[0].clientY - touchStart.current.y;
+    touchStart.current = null;
+    // Only a mostly sideways move counts, so scrolling down the page still works.
+    if (Math.abs(dx) < SWIPE_DISTANCE || Math.abs(dx) < Math.abs(dy)) return;
+    goTo(dx < 0 ? current + 1 : current - 1);
+  }
+
+  function onKeyDown(e) {
+    if (e.key === "ArrowRight") goTo(current + 1);
+    if (e.key === "ArrowLeft") goTo(current - 1);
+  }
+
+  // Work out every trade's title odds in the background as soon as the
+  // carousel shows up, so flipping through them doesn't wait on the math.
+  useEffect(() => {
+    warmTitleOdds(trades);
+  }, [trades]);
+
+  const t = trades[current];
+  const many = trades.length > 1;
+
+  return (
+    <div className="carousel">
+      {many && (
+        <div className="carousel-nav">
+          <button className="carousel-arrow" aria-label="Previous trade" onClick={() => goTo(current - 1)}>
+            ‹
+          </button>
+          <span className="carousel-count">
+            Trade {current + 1} of {trades.length}
+          </span>
+          <button className="carousel-arrow" aria-label="Next trade" onClick={() => goTo(current + 1)}>
+            ›
+          </button>
+        </div>
+      )}
+
+      {/* key changes with each trade, so React swaps in a fresh card and the slide-in animation replays. */}
+      <ul
+        className="trade-list carousel-slide"
+        key={current}
+        tabIndex={0}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+        onKeyDown={onKeyDown}
+      >
+        <TradeCard trade={t} />
+      </ul>
+
+      {many && (
+        <div className="carousel-dots">
+          {trades.map((trade, i) => (
+            <button
+              key={i}
+              className={`carousel-dot${i === current ? " active" : ""}`}
+              aria-label={`Trade ${i + 1}: ${trade.give.map((p) => p.name).join(" + ")} for ${trade.get.map((p) => p.name).join(" + ")}`}
+              title={`${trade.give.map((p) => p.name).join(" + ")} ⇄ ${trade.get.map((p) => p.name).join(" + ")}`}
+              onClick={() => setIndex(i)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -401,6 +611,11 @@ function Trades() {
 
   // Give every player his offense and his call (null for QB, K, D/ST and
   // anyone with under 4 games).
+  // Who's hurt or missing games, judged the same way on every page (health.js).
+  const byeWeeks = {};
+  for (const [team, row] of Object.entries(data.offenses || {})) byeWeeks[team] = row.byeWeek;
+  addHealth(data.teams.flatMap((team) => team.players), byeWeeks, data.week);
+
   const teams = data.teams.map((team) => ({
     ...team,
     players: team.players.map((p) => {
@@ -422,9 +637,31 @@ function Trades() {
   const season = data.season || { playoffTeams: 4, regularSeasonWeeks: 14 };
   const trades = findTrades(teams, data.slots, season, data.week);
 
-  // The trade calculator: shop one player around the whole league.
+  // The trade calculator, both directions: shop one of yours around the
+  // league, or work out what it takes to get one of theirs.
   const shopPlayer = (player) => findTrades(teams, data.slots, season, data.week, { forPlayer: player.espnId });
+  const targetPlayer = (player) => findTrades(teams, data.slots, season, data.week, { forTarget: player.espnId });
   const drops = dropCandidates(teams, data.slots);
+
+  // Buy them hurt: good players on other teams who are hurt or missing games
+  // but should be back by your playoffs (Week 15). Their price drops while
+  // they're out (marketDiscount in health.js), and a team that needs wins now
+  // gets nothing from them the next few weeks. Best healthy value first.
+  const PLAYOFFS_START = 15;
+  const MIN_HURT_VALUE = 9; // starter-level when healthy
+  const buyHurt = [];
+  for (const team of teams) {
+    if (team.isMine) continue;
+    for (const p of team.players) {
+      const h = p.health;
+      if (!p.callInfo || !p.callInfo.worthIt || !h || !["out", "missing", "risky"].includes(h.level)) continue;
+      if (p.callInfo.value < MIN_HURT_VALUE) continue;
+      const back = expectedBack(h, data.week);
+      if (back == null || back > PLAYOFFS_START) continue;
+      buyHurt.push({ ...p, owner: team.name, back, off: Math.round((1 - marketDiscount(h, data.week)) * 100) });
+    }
+  }
+  buyHurt.sort((a, b) => b.callInfo.value - a.callInfo.value);
 
   const buyLow = [];
   for (const team of teams) {
@@ -448,14 +685,11 @@ function Trades() {
         </div>
       </header>
 
-      <section className="why trade-section">
-        <div className="why-title">Your roster</div>
-        <p className="trade-note">
-          Sell high = scoring above his usage, his price won't get better. Sell low = his role is fading, get something
-          before it fades more. Hold · due = his usage says better days are coming, don't sell him cheap. ▲ / ▼
-          next to the team = that offense is rolling or struggling. Click a player for every reason and how his
-          offense is playing.
-        </p>
+      <Section
+        title="Your roster"
+        count={myPlayers.length}
+        help="Sell high = scoring above his usage, his price won't get better. Sell low = his role is fading, get something before it fades more. Hold · due = his usage says better days are coming, don't sell him cheap. ▲ / ▼ next to the team = that offense is rolling or struggling. Click a player for every reason, his schedule, how his offense is playing, and a button that shops him around the league."
+      >
         <ul className="trade-list">
           {myPlayers.map((p) => (
             <RosterRow key={p.espnId} player={p} currentWeek={data.week} shopPlayer={shopPlayer} />
@@ -464,38 +698,25 @@ function Trades() {
         {noData.length > 0 && (
           <p className="muted small">Not enough games to judge yet: {noData.map((p) => p.name).join(", ")}.</p>
         )}
-      </section>
+      </Section>
 
-      <section className="why trade-section">
-        <div className="why-title">Suggested trades</div>
-        <p className="trade-note">
-          Only trades where your lineup gets better by our numbers AND theirs gets better by the numbers they'd look
-          at (recent points, ESPN's projection and where he was drafted), and where they don't give up more than they
-          get on paper. Lineups use your league's {slotText} and are scored week by week, so byes and players out
-          this week count. +/wk is the average over the weeks left. A team that needs wins now only counts the next
-          few weeks. Two of your starting backs from one NFL team count for less. Injury risk is counted too: a
-          thin bench costs points, and giving two players for one has to win by at least 2.5 a week. A player
-          whose role has warning signs is treated as discounted: he gets paid for with players we're selling
-          anyway, never with a solid hold. The lineup
-          table is a normal week; the +/wk also counts byes and injuries, so they won't match exactly.
-        </p>
+      <Section
+        title="Suggested trades"
+        count={trades.length}
+        help={`Only trades where your lineup gets better by our numbers AND theirs gets better by the numbers they'd look at (recent points, ESPN's projection and where he was drafted), and where they don't give up more than they get on paper. Lineups use your league's ${slotText} and are scored week by week, so byes and players out this week count. +/wk is the average over the weeks left. A team that needs wins now only counts the next few weeks. Two of your starting backs from one NFL team count for less. Injury risk is counted too: a thin bench costs points, and giving two players for one has to win by at least 2.5 a week. A player whose role has warning signs is treated as discounted: he gets paid for with players we're selling anyway, never with a solid hold. The lineup table is a normal week; the +/wk also counts byes and injuries, so they won't match exactly.`}
+      >
         {trades.length === 0 ? (
           <p className="muted">No trades this week that clearly help both sides.</p>
         ) : (
-          <ul className="trade-list">
-            {trades.map((t) => (
-              <TradeCard
-                key={`${t.team.id}-${t.give.map((p) => p.espnId).join()}-${t.get.map((p) => p.espnId).join()}`}
-                trade={t}
-              />
-            ))}
-          </ul>
+          <TradeCarousel trades={trades} />
         )}
-      </section>
+      </Section>
 
-      <section className="why trade-section">
-        <div className="why-title">Drop candidates</div>
-        <p className="trade-note">Your weakest bench guys: the first to go for a waiver pickup.</p>
+      <Section
+        title="Drop candidates"
+        count={drops.length}
+        help="Your weakest bench guys: the first to go for a waiver pickup."
+      >
         {drops.length === 0 ? (
           <p className="muted">Nobody on your bench stands out as a drop.</p>
         ) : (
@@ -505,21 +726,45 @@ function Trades() {
             ))}
           </ul>
         )}
-      </section>
+      </Section>
 
-      <section className="why trade-section">
-        <div className="why-title">Buy low · around the league</div>
-        <p className="trade-note">Usage ahead of his points, and he's actually doing something with it. Top 6.</p>
+      <Section
+        title="Buy low · around the league"
+        count={Math.min(buyLow.length, 6)}
+        help="Usage ahead of his points, and he's actually doing something with it. Top 6. Click a player and use the button to see what it'd take to get him."
+      >
         {buyLow.length === 0 ? (
           <p className="muted">No clear buy-low targets this week.</p>
         ) : (
           <ul className="trade-list">
             {buyLow.slice(0, 6).map((p) => (
-              <BuyRow key={p.espnId} player={p} currentWeek={data.week} />
+              <BuyRow key={p.espnId} player={p} currentWeek={data.week} findFor={targetPlayer} />
             ))}
           </ul>
         )}
-      </section>
+      </Section>
+
+      <Section
+        title="Buy them hurt"
+        count={Math.min(buyHurt.length, 6)}
+        help="Good players who are hurt or missing games but should be back by your playoffs (Week 15). Other managers knock a chunk off a hurt player's price, and a team that needs wins now gets nothing from him the next few weeks, so this is when he's cheapest. The trade math counts the weeks he'll probably miss as 0 (4 weeks for IR, this week for Out, a coin flip for Questionable after a missed game) and about 90% of his normal value once he's back. /wk is his healthy value. Click one and use the button to see what it takes."
+      >
+        {buyHurt.length === 0 ? (
+          <p className="muted">No hurt starters who should be back by the playoffs right now.</p>
+        ) : (
+          <ul className="trade-list">
+            {buyHurt.slice(0, 6).map((p) => (
+              <BuyRow
+                key={p.espnId}
+                player={p}
+                currentWeek={data.week}
+                findFor={targetPlayer}
+                badge={`${p.back <= data.week ? "May play now" : `Back ~W${p.back}`} · ~${p.off}% off`}
+              />
+            ))}
+          </ul>
+        )}
+      </Section>
 
       <p className="game-log-key">
         /wk is our estimate of points per game the rest of the way: half his last 3 games, half the games before, with
@@ -530,5 +775,8 @@ function Trades() {
     </>
   );
 }
+
+// The Trade Finder tab reuses these.
+export { ScheduleBox, OffenseBox, CompactTrade, TradeCard, TradeCarousel, labelClass };
 
 export default Trades;
