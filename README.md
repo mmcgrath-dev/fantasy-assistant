@@ -4,6 +4,16 @@ A web app hooked up to my ESPN fantasy football league. ESPN tells you who's on 
 
 I built it to win my own league (10 teams, PPR, keeper), so everything in it is something I actually use every week.
 
+**Live demo: [mmcgrath-dev.github.io/fantasy-assistant](https://mmcgrath-dev.github.io/fantasy-assistant/)**
+
+The demo runs the real app on my league's real data, frozen from Week 10 of the 2026 season. The other teams' names are swapped for "Team 1" through "Team 9". The real site stays private since it logs into my ESPN account.
+
+| My Team | Start/Sit |
+|---|---|
+| ![My Team](docs/screenshots/my-team.png) | ![Start/Sit](docs/screenshots/start-sit.png) |
+| **Trades** | **Odds** |
+| ![Trades](docs/screenshots/trades.png) | ![Odds](docs/screenshots/odds.png) |
+
 ## What it does
 
 ### My Team
@@ -57,7 +67,7 @@ A few pieces worth explaining, since they're what make the advice better than a 
 | Data | Free NFL data from [nflverse](https://github.com/nflverse/nflverse-data): players, snap counts, every target and carry, weekly stats, injury reports, Next Gen Stats, schedule and Vegas lines |
 | Live data | ESPN's fantasy API: my league's rosters, projections, records, schedule and scores |
 | Data refresh | A GitHub Actions job that reloads everything every Tuesday and Saturday |
-| Hosting | Netlify |
+| Hosting | Netlify for the real site, GitHub Pages for the public demo |
 
 ```
 src/                   React app
@@ -74,7 +84,9 @@ netlify/lib/           shared helpers: ESPN requests, the database client,
                          this week's starting QBs (qb.js), players who just changed teams (movers.js)
 supabase/              SQL files, numbered in the order they run
 scripts/               Node scripts that load nflverse data into the database
-.github/workflows/     the scheduled data refresh
+                         (plus snapshot-demo.mjs, which freezes a week for the demo)
+demo/                  the public demo: same app, answered from saved JSON instead of a server
+.github/workflows/     the scheduled data refresh and the demo publish
 ```
 
 ### The database
@@ -101,6 +113,12 @@ Each file has comments at the top explaining what it does and an example query t
 ### Keeping the data fresh
 
 `.github/workflows/weekly-data.yml` runs every loader script twice a week. Tuesday morning picks up Monday Night Football, and Saturday morning picks up Friday's final injury reports. It can also be run any time from the Actions tab.
+
+### The public demo
+
+`demo/` builds the same React app with one swap: every call the app makes to a Netlify function gets answered from frozen JSON files in `demo/data/` instead. Nothing in `src/` knows the demo exists, and the demo never needs a key.
+
+To refresh it with a new week: `node --env-file=.env scripts/snapshot-demo.mjs`, then push. The script swaps the other teams' names before saving and refuses to save if a real one slips through. `.github/workflows/demo-pages.yml` then builds it and publishes it to GitHub Pages.
 
 `netlify.toml` tells Netlify to skip a deploy when a push only changes scripts, SQL or the workflow, since those don't change the site.
 
