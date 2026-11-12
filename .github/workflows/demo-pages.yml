@@ -1,0 +1,50 @@
+# demo-pages.yml
+# Builds the public demo and puts it on GitHub Pages:
+#   https://mmcgrath-dev.github.io/fantasy-assistant/
+#
+# Runs on its own whenever you push a change the demo uses (the app code or
+# the frozen data), and you can also start it by hand from the Actions tab.
+# GitHub Pages is free, so this never touches your Netlify credits.
+
+name: Demo site
+
+on:
+  push:
+    branches: [main]
+    paths: ["src/**", "demo/**", "public/**", "package.json", "package-lock.json"]
+  workflow_dispatch:
+
+# Pages needs permission to publish. Only one publish runs at a time.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx vite build --config demo/vite.config.js
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: demo/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

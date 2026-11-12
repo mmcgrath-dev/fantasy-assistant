@@ -1,0 +1,14 @@
+/* The demo banner. Sits above the app's tabs. */
+.demo-banner {
+  background: #2a2f3a;
+  color: #e8e8e8;
+  border-bottom: 2px solid #f0b429;
+  padding: 10px 16px;
+  font-size: 14px;
+  text-align: center;
+}
+
+.demo-banner a {
+  color: #f0b429;
+  margin-left: 6px;
+}
