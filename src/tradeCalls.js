@@ -29,6 +29,10 @@ const BUSTY = 30;             // 30%+ of his games under half his average = boom
 const STEADY_STDEV = 4.5;     // a typical week lands within this of his average = steady
 const SHARE_SWING = 15;       // backfield share (% of his team's RB touches) up or down 15+ points
 const MIN_PRIOR_GAMES = 2;    // need this many games before his last 3 to call anything a change
+const FEW_GAMES = 3;          // at this many full games or fewer, ESPN's projection counts half his value
+const ENOUGH_GAMES = 8;       // ...sliding back to the normal 20% by this many
+const YPT_HOT = 2.5;          // receiving yards per target this far OVER his position's average = a hot streak
+const YPT_KEEP = 0.5;         // ...and only half of those extra yards count, since that rarely lasts
 const EARLY_PICK = 36;        // drafted this early (about the first 3 to 4 rounds of a 10-team draft) = an early-round guy
 const EARLY_SELL_LOW = 5;     // an early-round guy needs this much "sell" (vs 2 for everyone else) before we say sell low
 
@@ -419,8 +423,35 @@ export function tradeCall(s, position, espn = {}, offense = null) {
   // switch, so ESPN counts for more: half this week, a third for his first 3 games.
   // A trade (his, or a new teammate at his spot) counts the same as a new QB.
   const freshChange = offense?.qbThisWeek || moves.joined || newMates.length > 0;
-  const espnWeight = freshChange ? 0.5 : offense?.qbNew ? 0.35 : 0.2;
-  if (espn.espnProjection != null) value = (1 - espnWeight) * value + espnWeight * espn.espnProjection;
+  // A player with only a few full games is a small sample: a hot 3 weeks
+  // could be real or could be noise, so ESPN gets more say until he's played
+  // enough. 3 games or fewer = half, sliding to the normal 20% by 8 games.
+  const games = s.games ?? ENOUGH_GAMES;
+  const fewGames = Math.min(1, Math.max(0, (ENOUGH_GAMES - games) / (ENOUGH_GAMES - FEW_GAMES)));
+  const sampleWeight = 0.2 + 0.3 * fewGames;
+  const espnWeight = Math.max(freshChange ? 0.5 : offense?.qbNew ? 0.35 : 0.2, sampleWeight);
+  if (espn.espnProjection != null) {
+    value = (1 - espnWeight) * value + espnWeight * espn.espnProjection;
+    if (fewGames > 0 && sampleWeight >= espnWeight) {
+      reasons.push(
+        `Only ${games} full ${games === 1 ? "game" : "games"} to go on, so ESPN's projection (${espn.espnProjection}) counts for ${Math.round(espnWeight * 100)}% of his value until he's played more.`
+      );
+    }
+  }
+
+  // Receivers on a hot efficiency streak: way more yards per target than his
+  // position averages. That almost never lasts, so half of those extra yards
+  // come out of his value (a point per 10 yards). Same idea as the knock on
+  // backs doing nothing with their carries, flipped around.
+  if (!isRB && s.yptLast3 != null && s.leagueYpt != null && s.targetsLast3 != null && s.yptLast3 - s.leagueYpt >= YPT_HOT) {
+    const extraPts = ((s.yptLast3 - s.leagueYpt) * s.targetsLast3) / 10;
+    // only the part of his value that came from those recent games
+    const recentShare = s.pprPrior == null ? 1 : shareDrop ? 0.75 : 0.5;
+    value -= (1 - YPT_KEEP) * extraPts * recentShare * (1 - espnWeight);
+    reasons.push(
+      `Running hot: ${s.yptLast3} yards per target lately vs about ${s.leagueYpt} for his position. That usually cools off, so his value assumes it will some.`
+    );
+  }
   const luckPerGame = (s.tdLuck * 6) / s.games;
   if (!(luckPerGame < 0 && glLost)) value -= luckRemoved * luckPerGame;
   if (inefficient && isRB) value -= 1;
